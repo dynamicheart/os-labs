@@ -24,6 +24,8 @@ struct Command {
 static struct Command commands[] = {
 	{ "help", "Display this list of commands", mon_help },
 	{ "kerninfo", "Display information about the kernel", mon_kerninfo },
+	{ "backtrace", "Print a backtrace of the stack", mon_backtrace },
+	{ "time", "Count a program's running time", mon_time },
 };
 #define NCOMMANDS (sizeof(commands)/sizeof(commands[0]))
 
@@ -61,7 +63,7 @@ mon_kerninfo(int argc, char **argv, struct Trapframe *tf)
 static uint32_t
 read_pretaddr() {
     uint32_t pretaddr;
-    __asm __volatile("leal 4(%%ebp), %0" : "=r" (pretaddr)); 
+    __asm __volatile("leal 4(%%ebp), %0" : "=r" (pretaddr));
     return pretaddr;
 }
 
@@ -69,11 +71,57 @@ int
 mon_backtrace(int argc, char **argv, struct Trapframe *tf)
 {
 	// Your code here.
-    cprintf("Backtrace success\n");
+	uint32_t eip = read_eip(), ebp = read_ebp();
+	uint32_t args[5] = {0};
+	struct Eipdebuginfo info;
+
+	cprintf("Stack backtrace:\n");
+
+	while(ebp != 0) {
+		for(uint32_t i = 0; i < 5; i++) {
+			args[i] = *((uint32_t *)(ebp + 8 + 4 * i));
+		}
+		cprintf("  eip %08x ebp %08x args %08x %08x %08x %08x %08x\n", eip, ebp, args[0], args[1], args[2], args[3], args[4]);
+		if(debuginfo_eip(eip, &info) == 0){
+			cprintf("	 %s:%d: ", info.eip_file, info.eip_line);
+			for(int i = 0; i < info.eip_fn_namelen; i++) cprintf("%c", info.eip_fn_name[i]);
+			cprintf("+%d\n", eip - info.eip_fn_addr);
+		}
+
+		ebp = *((uint32_t *)ebp);
+		eip = *((uint32_t *)(ebp + 4));
+	}
+
 	return 0;
 }
 
+int
+mon_time(int argc, char **argv, struct Trapframe *tf)
+{
+	if(argc < 2) return -1;
+	uint32_t lo, hi;
+	uint64_t start = 0, end = 0;
+	int i;
+	for (i = 0; i < NCOMMANDS; i++) {
+		if (strcmp(argv[1], commands[i].name) == 0){
+			if(i == NCOMMANDS - 1) return commands[i].func(argc - 1, argv + 1, tf);
+			
+			__asm __volatile("rdtsc":"=a"(lo),"=d"(hi));
+			start = (uint64_t)hi << 32 | lo;
+			commands[i].func(argc - 1, argv + 1, tf);
+			__asm __volatile("rdtsc":"=a"(lo),"=d"(hi));
+			end = (uint64_t)hi << 32 | lo;
+			break;
+		}
+	}
+	if(i == NCOMMANDS) {
+		cprintf("Unknown command '%s'\n", argv[1]);
+	} else {
+		cprintf("%s cycles: %d\n", commands[i].name, end - start);
+	}
 
+	return 0;
+}
 
 /***** Kernel monitor command interpreter *****/
 
