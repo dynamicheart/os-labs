@@ -28,7 +28,7 @@ static const char * const error_string[MAXERROR] =
 	[E_FAULT]	= "segmentation fault",
 };
 
-//print naive numbers
+//打印简单数字
 static void
 printnnum(void (*putch)(int, void*), void *putdat,
 	 unsigned long long num, unsigned base, int* width)
@@ -45,26 +45,34 @@ printnnum(void (*putch)(int, void*), void *putdat,
  */
 static void
 printnum(void (*putch)(int, void*), void *putdat,
-	 unsigned long long num, unsigned base, int width, int padc)
+	 unsigned long long num, unsigned base, int width, int padc, int sign)
 {
 	// if cprintf'parameter includes pattern of the form "%-", padding
 	// space on the right side if neccesary.
 	// you can add helper function if needed.
 	// your code here:
 	if(padc == '-') {
+		if(sign != 0) { putch(sign, putdat); width--; }
 		printnnum(putch, putdat, num, base, &width);
 		for(; width > 0; width--) putch(' ', putdat);
-
 		return;
 	}
 
 	// first recursively print all preceding (more significant) digits
 	if (num >= base) {
-		printnum(putch, putdat, num / base, base, width - 1, padc);
+		printnum(putch, putdat, num / base, base, width - 1, padc, sign);
 	} else {
 		// print any needed pad characters before first digit
-		while (--width > 0)
-			putch(padc, putdat);
+		//预留好符号的位置
+		if(sign != 0) width--;
+
+		//填充是0，符号加在0之前
+		if(padc == '0' && sign != 0) putch(sign, putdat);
+
+		while (--width > 0) putch(padc, putdat);
+
+		//填充不是0，符号加在数字之前
+		if(padc != '0' && sign != 0) putch(sign, putdat);
 	}
 
 	// then print this (the least significant) digit
@@ -107,8 +115,8 @@ vprintfmt(void (*putch)(int, void*), void *putdat, const char *fmt, va_list ap)
 	register const char *p;
 	register int ch, err;
 	unsigned long long num;
-	int base, lflag, width, precision, altflag, sflag;
-	char padc;
+	int base, lflag, width, precision, altflag;
+	char padc, sign;
 	signed char *cntptr;
 
 	while (1) {
@@ -124,12 +132,14 @@ vprintfmt(void (*putch)(int, void*), void *putdat, const char *fmt, va_list ap)
 		precision = -1;
 		lflag = 0;
 		altflag = 0;
-		sflag = 0;
+		//sign用于记录+号标志，0表示不需要添加符号
+		sign = 0;
 		cntptr = NULL;
 	reswitch:
 		switch (ch = *(unsigned char *) fmt++) {
 		case '+':
-			sflag = 1;
+			//暂时用'+'来记录要对有符号类型d强制加符号
+			sign = '+';
 			goto reswitch;
 		// flag to pad on the right
 		case '-':
@@ -138,7 +148,12 @@ vprintfmt(void (*putch)(int, void*), void *putdat, const char *fmt, va_list ap)
 
 		// flag to pad with 0's instead of spaces
 		case '0':
-			padc = '0';
+			//左对齐符号出现时，会忽视掉0符号
+			if(padc != '-') padc = '0';
+			goto reswitch;
+
+		case ' ':
+			if(sign != '+') sign = ' ';
 			goto reswitch;
 
 		// width field
@@ -218,16 +233,16 @@ vprintfmt(void (*putch)(int, void*), void *putdat, const char *fmt, va_list ap)
 		case 'd':
 			num = getint(&ap, lflag);
 			if ((long long) num < 0) {
-				putch('-', putdat);
+				sign = '-';
 				num = -(long long) num;
-			} else if(sflag) putch('+', putdat);
+			}
 
 			base = 10;
 			goto number;
 
 		// unsigned decimal
 		case 'u':
-			if(sflag) putch('+', putdat);
+			sign = 0;
 			num = getuint(&ap, lflag);
 			base = 10;
 			goto number;
@@ -236,7 +251,7 @@ vprintfmt(void (*putch)(int, void*), void *putdat, const char *fmt, va_list ap)
 		case 'o':
 			// Replace this with your code.
 			// display a number in octal form and the form should begin with '0'
-			if(sflag) putch('+', putdat);
+			sign = 0;
 			putch('0', putdat);
 			num = getuint(&ap, lflag);
 			base = 8;
@@ -253,11 +268,11 @@ vprintfmt(void (*putch)(int, void*), void *putdat, const char *fmt, va_list ap)
 
 		// (unsigned) hexadecimal
 		case 'x':
-			if(sflag) putch('+', putdat);
+		    sign = 0;
 			num = getuint(&ap, lflag);
 			base = 16;
 		number:
-			printnum(putch, putdat, num, base, width, padc);
+			printnum(putch, putdat, num, base, width, padc, sign);
 			break;
 
         case 'n': {
