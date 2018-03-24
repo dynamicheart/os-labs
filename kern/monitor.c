@@ -98,28 +98,30 @@ mon_backtrace(int argc, char **argv, struct Trapframe *tf)
 int
 mon_time(int argc, char **argv, struct Trapframe *tf)
 {
-	if(argc < 2) return -1;
+	if (argc < 2) {
+		cprintf("Usage: time [command]\n");
+		return 0;
+	}
+
 	uint32_t lo, hi;
 	uint64_t start = 0, end = 0;
-	int i;
-	for (i = 0; i < NCOMMANDS; i++) {
-		if (strcmp(argv[1], commands[i].name) == 0){
-			if(i == NCOMMANDS - 1) return commands[i].func(argc - 1, argv + 1, tf);
-			
+	for (int i = 0; i < NCOMMANDS; i++) {
+		if (strcmp(argv[1], commands[i].name) == 0 && strcmp(argv[1], "time") != 0){
 			__asm __volatile("rdtsc":"=a"(lo),"=d"(hi));
 			start = (uint64_t)hi << 32 | lo;
 			commands[i].func(argc - 1, argv + 1, tf);
 			__asm __volatile("rdtsc":"=a"(lo),"=d"(hi));
 			end = (uint64_t)hi << 32 | lo;
-			break;
+
+			cprintf("%s cycles: %d\n", commands[i].name, end - start);
+			return 0;
+		} else if(strcmp(commands[i].name, "time") == 0 && strcmp(argv[1], "time") == 0){
+			// Multiple time commands act like one time command
+			return commands[i].func(argc - 1, argv + 1, tf);
 		}
 	}
-	if(i == NCOMMANDS) {
-		cprintf("Unknown command '%s'\n", argv[1]);
-	} else {
-		cprintf("%s cycles: %d\n", commands[i].name, end - start);
-	}
 
+	cprintf("Unknown command:'%s'\n\n", argv[1]);
 	return 0;
 }
 
