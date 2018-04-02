@@ -108,8 +108,9 @@ boot_alloc(uint32_t n)
 	if(n == 0)
 		return nextfree;
 
-	// Detect weather the last byte is out of memory
-	if (PGNUM(PADDR(nextfree + n - 1)) > npages)
+	// Detect wheather the last byte is out of memory. The simple
+	// page table installed before only mapped 4MB memory.
+	if (PADDR(nextfree + n - 1) >= PTSIZE)
 		panic("boot_alloc: Out of Memory\n");
 
 	// Convert physical address to virtual address
@@ -372,9 +373,13 @@ pgdir_walk(pde_t *pgdir, const void *va, int create)
 	struct Page *pp;
 
 	pde = &pgdir[PDX(va)];
-	if (*pde & PTE_P) {
+	// The only way to create a page table entry of large page 
+	//is to use boot_map_region_large.
+	if ((*pde & PTE_P) && (*pde & PTE_PS))
+		return (pte_t *)pde;
+	else if (*pde & PTE_P)
 		pgtab = (pte_t *) KADDR(PTE_ADDR(*pde));
-	} else {
+	else {
 		if (!create || (pp = page_alloc(ALLOC_ZERO)) == NULL)
 			return NULL;
 

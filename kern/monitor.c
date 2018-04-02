@@ -10,6 +10,7 @@
 #include <kern/console.h>
 #include <kern/monitor.h>
 #include <kern/kdebug.h>
+#include <kern/pmap.h>
 
 #define CMDBUF_SIZE	80	// enough for one VGA text line
 
@@ -26,6 +27,9 @@ static struct Command commands[] = {
 	{ "kerninfo", "Display information about the kernel", mon_kerninfo },
 	{ "backtrace", "Print a backtrace of the stack", mon_backtrace },
 	{ "time", "Count a program's running time", mon_time },
+	{ "showmappings", "Display physical page mappings", mon_showmappings},
+	{ "setpermission", "Change the permissions of any mapping", mon_setpermission},
+	{ "memdump", "Dump the contents of a range of memory", mon_memdump}
 };
 #define NCOMMANDS (sizeof(commands)/sizeof(commands[0]))
 
@@ -122,6 +126,212 @@ mon_time(int argc, char **argv, struct Trapframe *tf)
 	}
 
 	cprintf("Unknown command:'%s'\n\n", argv[1]);
+	return 0;
+}
+
+int
+mon_showmappings(int argc, char **argv, struct Trapframe *tf)
+{
+	if (argc != 3) {
+		cprintf("Usage: showmappings [low_virtual_address] [high_virtual_address]\n");
+		return 0;
+	}
+
+	uint32_t low_vaddress, high_vaddress;
+	char *end1 = NULL, *end2 = NULL;
+	pte_t *pte;
+
+	// May be overflow here
+	low_vaddress = (uint32_t)strtol(argv[1], &end1, 0);
+	high_vaddress = (uint32_t)strtol(argv[2], &end2, 0);
+
+	if (end1 != argv[1] + strlen(argv[1]) || end2 != argv[2] + strlen(argv[2])) {
+		cprintf("Invalid virtual address\n");
+		return 0;
+	}
+
+	if (low_vaddress > high_vaddress) {
+		cprintf("Invalid virtual address ranges\n");
+		return 0;
+	}
+
+	low_vaddress = ROUNDDOWN(low_vaddress, PGSIZE); 
+	high_vaddress = ROUNDDOWN(high_vaddress, PGSIZE);
+
+	while (1){
+		pte = pgdir_walk(kern_pgdir, (void *)low_vaddress, 0);
+		if (pte && (*pte & PTE_P))
+			cprintf("0x%08x ---> 0x%08x   %c%c%c%c%c%c%c%c%c\n",
+				low_vaddress,
+				(uint32_t)(*pte & (~0x3FF)),
+				*pte & PTE_P ? 'P' : '-',
+				*pte & PTE_W ? 'W' : '-',
+				*pte & PTE_U ? 'U' : '-',
+				*pte & PTE_PWT ? 'T' : '-',
+				*pte & PTE_PCD ? 'C' : '-',
+				*pte & PTE_A ? 'A' : '-',
+				*pte & PTE_D ? 'D' : '-',
+				*pte & PTE_PS ? 'S' : '-',
+				*pte & PTE_G ? 'G' : '-'
+				);
+
+		// Large page
+		if (pte && (*pte & (PTE_P | PTE_PS))) {
+			if (low_vaddress == 0xFFC00000)
+				break;
+			low_vaddress += PTSIZE;
+		} else {
+			if (low_vaddress == 0xFFFFFC00)
+				break;
+			low_vaddress += PGSIZE;
+		}
+
+		if (low_vaddress > high_vaddress)
+			break;
+	}
+
+	return 0;
+}
+
+int
+mon_setpermission(int argc, char **argv, struct Trapframe *tf)
+{
+	if (argc != 3) {
+		cprintf("Usage: setpermission [virtual_address] [permissions]\n");
+		return 0;
+	}
+
+	char *end = NULL;
+	uint32_t vaddress, permission;
+	pte_t *pte;
+
+	// May be overflow here
+	vaddress = ROUNDDOWN((uint32_t) strtol(argv[1], &end, 0), PGSIZE);
+	permission = ((uint32_t) strtol(argv[1], &end, 0)) & 0x1FF;
+
+	pte = pgdir_walk(kern_pgdir, (void *)vaddress, 0);
+
+	if (pte && (*pte & PTE_P)) {
+		cprintf("BEFORE: 0x%08x ---> 0x%08x  %c%c%c%c%c%c%c%c%c\n",
+				vaddress, 
+				(uint32_t)(*pte & (~0x3FF)),
+				*pte & PTE_P ? 'P' : '-',
+				*pte & PTE_W ? 'W' : '-',
+				*pte & PTE_U ? 'U' : '-',
+				*pte & PTE_PWT ? 'T' : '-',
+				*pte & PTE_PCD ? 'C' : '-',
+				*pte & PTE_A ? 'A' : '-',
+				*pte & PTE_D ? 'D' : '-',
+				*pte & PTE_PS ? 'S' : '-',
+				*pte & PTE_G ? 'G' : '-'
+				);
+
+		*pte = *pte & (permission | ~0x1FF);
+
+		cprintf("AFTER: 0x%08x ---> 0x%08x  %c%c%c%c%c%c%c%c%c\n",
+				vaddress, 
+				(uint32_t)(*pte & (~0x3FF)),
+				*pte & PTE_P ? 'P' : '-',
+				*pte & PTE_W ? 'W' : '-',
+				*pte & PTE_U ? 'U' : '-',
+				*pte & PTE_PWT ? 'T' : '-',
+				*pte & PTE_PCD ? 'C' : '-',
+				*pte & PTE_A ? 'A' : '-',
+				*pte & PTE_D ? 'D' : '-',
+				*pte & PTE_PS ? 'S' : '-',
+				*pte & PTE_G ? 'G' : '-'
+				);
+	}
+	else 
+		cprintf("Page not existed\n");
+
+	return 0;
+}
+
+int
+mon_memdump(int argc, char **argv, struct Trapframe *tf)
+{
+	if (argc != 4) {
+		cprintf("Usage: memdump [-v/p] [low_address] [high_address]\n");
+		return 0;
+	}
+
+	// Is the address virtual?
+	int vtype = 1;
+
+	if (strcmp(argv[1], "-v") == 0)
+		vtype = 1;
+	else if (strcmp(argv[1], "-p") == 0)
+		vtype = 0;
+	else {
+		cprintf("Usage: memdump [-v/p] [low_address] [high_address]\n");
+		return 0;
+	}
+
+	uint32_t low_vaddress, high_vaddress, next_page_addr;
+	char *end2 = NULL, *end3 = NULL;
+	pte_t *pte;
+
+	// May be overflow here
+	low_vaddress = (uint32_t)strtol(argv[2], &end2, 0);
+	high_vaddress = (uint32_t)strtol(argv[3], &end3, 0);
+
+	if (!vtype) {
+		if (high_vaddress >= 0xFFFFFFFF - KERNBASE) {
+			cprintf("Invalid physical address\n");
+			return 0;
+		}
+
+		low_vaddress += KERNBASE;
+		high_vaddress += KERNBASE;
+	}
+
+	if (end2 != argv[2] + strlen(argv[2]) || end3 != argv[3] + strlen(argv[3])) {
+		cprintf("Invalid virtual address\n");
+		return 0;
+	}
+
+	if (low_vaddress > high_vaddress) {
+		cprintf("Invalid virtual address ranges\n");
+		return 0;
+	}
+
+	while (low_vaddress <= high_vaddress){
+		pte = pgdir_walk(kern_pgdir, (void *)low_vaddress, 0);
+		if (pte && (*pte & PTE_P) && (*pte & PTE_PS)) {
+			next_page_addr = ROUNDUP(low_vaddress + 1, PTSIZE);
+			while (low_vaddress < next_page_addr && low_vaddress <= high_vaddress){
+				// Little endian
+				cprintf("%08x: %02x %02x %02x %02x\n",
+					low_vaddress,
+					*((unsigned char *)low_vaddress),
+					*(((unsigned char *)low_vaddress) + 1),
+					*(((unsigned char *)low_vaddress) + 2),
+					*(((unsigned char *)low_vaddress) + 3)
+					);
+				low_vaddress++;
+			}
+			low_vaddress = next_page_addr;
+		} else if (pte && (*pte & PTE_P)) {
+			next_page_addr = ROUNDUP(low_vaddress + 1, PGSIZE);
+			while (low_vaddress < next_page_addr && low_vaddress <= high_vaddress) {
+				// Little endian
+				cprintf("%08x: %02x %02x %02x %02x\n",
+					low_vaddress,
+					*((unsigned char *)low_vaddress),
+					*(((unsigned char *)low_vaddress) + 1),
+					*(((unsigned char *)low_vaddress) + 2),
+					*(((unsigned char *)low_vaddress) + 3)
+					);
+				low_vaddress++;
+			}
+			low_vaddress = next_page_addr;
+		} else{
+			next_page_addr = ROUNDUP(low_vaddress + 1, PGSIZE);
+			low_vaddress = next_page_addr;
+		}
+	}
+
 	return 0;
 }
 
