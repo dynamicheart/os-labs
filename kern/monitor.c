@@ -163,7 +163,7 @@ mon_showmappings(int argc, char **argv, struct Trapframe *tf)
 		if (pte && (*pte & PTE_P))
 			cprintf("0x%08x ---> 0x%08x   %c%c%c%c%c%c%c%c%c\n",
 				low_vaddress,
-				(uint32_t)(*pte & (~0x3FF)),
+				*pte & PTE_PS ? (uint32_t)(*pte & (~0x3FF)) : (uint32_t)(*pte & (~0x2FFFFF)),
 				*pte & PTE_P ? 'P' : '-',
 				*pte & PTE_W ? 'W' : '-',
 				*pte & PTE_U ? 'U' : '-',
