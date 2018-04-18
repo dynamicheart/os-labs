@@ -3,6 +3,8 @@
 #include <inc/stdio.h>
 #include <inc/string.h>
 #include <inc/assert.h>
+#include <inc/x86.h>
+#include <inc/mmu.h>
 
 #include <kern/monitor.h>
 #include <kern/console.h>
@@ -10,7 +12,6 @@
 #include <kern/kclock.h>
 #include <kern/env.h>
 #include <kern/trap.h>
-
 
 void
 i386_init(void)
@@ -32,12 +33,25 @@ i386_init(void)
 	cprintf("pading space in the right to number 22: %-8d.\n", 22);
 	cprintf("show me the sign: %+d, %+d\n", 1024, -1024);
 
-
 	// Lab 2 memory management initialization functions
 	mem_init();
 
 	// Lab 3 user environment initialization functions
+
 	env_init();
+
+	/* Enable sysenter inst. and sysexit inst.
+	 * Reference:
+	 *  - https://lwn.net/Articles/18414/
+	 *  - https://wiki.osdev.org/SYSENTER
+	 *  - https://elixir.bootlin.com/linux/v2.6.25/source/include/asm-x86/msr.h
+	 *  - https://wiki.osdev.org/MSR
+	 */
+	extern void sysenter_handler();
+	wrmsr(0x174, GD_KT, 0); /* SYSENTER_CS_MSR */
+	wrmsr(0x175, KSTACKTOP, 0); /* SYSENTER_ESP_MSR */
+	wrmsr(0x176, (unsigned)sysenter_handler, 0); /* SYSENTER_EIP_MSR */
+
 	trap_init();
 
 #if defined(TEST)

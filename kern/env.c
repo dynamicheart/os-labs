@@ -231,6 +231,7 @@ env_alloc(struct Env **newenv_store, envid_t parent_id)
 	e->env_type = ENV_TYPE_USER;
 	e->env_status = ENV_RUNNABLE;
 	e->env_runs = 0;
+	e->env_break = 0;
 
 	// Clear out all the saved register state,
 	// to prevent the register values
@@ -287,7 +288,6 @@ region_alloc(struct Env *e, void *va, size_t len)
 	for(;;) {
 		if (a == last)
 			return;
-
 		// Allocate a page for the page directory
 		if (!(pp = page_alloc(0)))
 			panic("region_alloc: %e", -E_NO_MEM);
@@ -377,6 +377,8 @@ load_icode(struct Env *e, uint8_t *binary, size_t size)
 			memmove((void *)ph->p_va, binary + ph->p_offset, ph->p_filesz);
 			// Set the remaining memory to 0
 			memset((void *)ph->p_va + ph->p_filesz, 0, ph->p_memsz - ph->p_filesz);
+			// Set env's current break
+			e->env_break = (ph->p_va + ph->p_memsz) > e->env_break ? ph->p_va + ph->p_memsz : e->env_break;
 		}
 	}
 
@@ -551,7 +553,5 @@ env_run(struct Env *e)
 	// However 6.828 patched QEMU will print triple fault message 
 	// instead of rebooting.
 	env_pop_tf(&e->env_tf);
-
-	// panic("env_run not yet implemented");
 }
 

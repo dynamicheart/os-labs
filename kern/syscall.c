@@ -21,7 +21,7 @@ sys_cputs(const char *s, size_t len)
 	// Destroy the environment if not.
 
 	// LAB 3: Your code here.
-
+	user_mem_assert(curenv, s, len, 0);
 	// Print the string supplied by the user.
 	cprintf("%.*s", len, s);
 }
@@ -77,7 +77,36 @@ static int
 sys_sbrk(uint32_t inc)
 {
 	// LAB3: your code sbrk here...
-	return 0;
+	int r;
+	struct Page* pp;
+	pte_t *pte;
+	uint32_t a, last;
+
+	if (inc == 0)
+		return (int)curenv->env_break;
+
+	if (curenv->env_break + inc > UTOP)
+		return -1;
+
+	a = ROUNDDOWN(curenv->env_break, PGSIZE);
+	last = ROUNDDOWN(curenv->env_break + inc - 1, PGSIZE);
+
+	for (;;) {
+		if ((pte = pgdir_walk(curenv->env_pgdir, (void *)a, 0)) == NULL || !(*pte & PTE_P)){
+			if ((pp = page_alloc(0)) == NULL)
+				return -1;
+			if ((r = page_insert(curenv->env_pgdir, pp, (void *)a, PTE_U | PTE_W)) < 0)
+				return -1;
+		}
+
+	  	if(a == last)
+	  		break;
+
+		a += PGSIZE;
+	}
+
+	curenv->env_break += inc;
+	return (int)curenv->env_break;
 }
 
 // Dispatches to the correct kernel function, passing the arguments.
@@ -87,7 +116,23 @@ syscall(uint32_t syscallno, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, 
 	// Call the function corresponding to the 'syscallno' parameter.
 	// Return any appropriate return value.
 	// LAB 3: Your code here.
-
-	panic("syscall not implemented");
+	switch (syscallno) {
+		case SYS_cputs:
+			sys_cputs((char *)a1, (size_t)a2);
+			return 0;
+		case SYS_cgetc:
+			return sys_cgetc();
+		case SYS_getenvid:
+			return sys_getenvid();
+		case SYS_env_destroy:
+			return sys_env_destroy((envid_t)a1);
+		case SYS_map_kernel_page:
+			return sys_map_kernel_page((void *)a1, (void *)a2);
+		case SYS_sbrk:
+			return sys_sbrk(a1);
+		default:
+			return -E_INVAL;
+	}
+	assert(0);
 }
 

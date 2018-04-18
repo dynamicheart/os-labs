@@ -6,11 +6,13 @@
 #include <inc/memlayout.h>
 #include <inc/assert.h>
 #include <inc/x86.h>
+#include <inc/env.h>
 
 #include <kern/console.h>
 #include <kern/monitor.h>
 #include <kern/kdebug.h>
 #include <kern/trap.h>
+#include <kern/env.h>
 #include <kern/pmap.h>
 
 #define CMDBUF_SIZE	80	// enough for one VGA text line
@@ -30,7 +32,10 @@ static struct Command commands[] = {
 	{ "time", "Count a program's running time", mon_time },
 	{ "showmappings", "Display physical page mappings", mon_showmappings},
 	{ "setpermission", "Change the permissions of any mapping", mon_setpermission},
-	{ "memdump", "Dump the contents of a range of memory", mon_memdump}
+	{ "memdump", "Dump the contents of a range of memory", mon_memdump},
+	{ "c", "Tells GDB to continue execution from the current location", mon_c},
+	{ "si", "Executing the code instruction by instruction", mon_si},
+	{ "x", "Display the memory", mon_x}
 };
 #define NCOMMANDS (sizeof(commands)/sizeof(commands[0]))
 
@@ -76,20 +81,29 @@ int
 mon_backtrace(int argc, char **argv, struct Trapframe *tf)
 {
 	// Your code here.
-	uint32_t eip = read_eip(), ebp = read_ebp();
+	uint32_t eip, ebp;
 	uint32_t args[5] = {0};
 	struct Eipdebuginfo info;
 
+	if (tf) {
+		eip = tf->tf_eip;
+		ebp = tf->tf_regs.reg_ebp;
+	} else {
+		eip = read_eip();
+		ebp = read_ebp();
+	}
+
 	cprintf("Stack backtrace:\n");
 
-	while(ebp != 0) {
+	while (ebp != 0) {
 		for(uint32_t i = 0; i < 5; i++) {
 			args[i] = *((uint32_t *)(ebp + 8 + 4 * i));
 		}
 		cprintf("  eip %08x ebp %08x args %08x %08x %08x %08x %08x\n", eip, ebp, args[0], args[1], args[2], args[3], args[4]);
-		if(debuginfo_eip(eip, &info) == 0){
-			cprintf("	 %s:%d: ", info.eip_file, info.eip_line);
-			for(int i = 0; i < info.eip_fn_namelen; i++) cprintf("%c", info.eip_fn_name[i]);
+		if (debuginfo_eip(eip, &info) == 0) {
+			cprintf("  %s:%d: ", info.eip_file, info.eip_line);
+			for(int i = 0; i < info.eip_fn_namelen; i++)
+				cprintf("%c", info.eip_fn_name[i]);
 			cprintf("+%d\n", eip - info.eip_fn_addr);
 		}
 
@@ -104,7 +118,7 @@ int
 mon_time(int argc, char **argv, struct Trapframe *tf)
 {
 	if (argc < 2) {
-		cprintf("Usage: time [command]\n");
+		cprintf("Usage: time [COMMAND]\n");
 		return 0;
 	}
 
@@ -134,7 +148,7 @@ int
 mon_showmappings(int argc, char **argv, struct Trapframe *tf)
 {
 	if (argc != 3) {
-		cprintf("Usage: showmappings [low_virtual_address] [high_virtual_address]\n");
+		cprintf("Usage: showmappings [LOW_VIRTUAL_ADDRESS] [HIGH_VIRTUAL_ADDRESS]\n");
 		return 0;
 	}
 
@@ -198,7 +212,7 @@ int
 mon_setpermission(int argc, char **argv, struct Trapframe *tf)
 {
 	if (argc != 3) {
-		cprintf("Usage: setpermission [virtual_address] [permissions]\n");
+		cprintf("Usage: setpermission [VIRTUAL_ADDRESS] [PERMISSIONS]\n");
 		return 0;
 	}
 
@@ -336,6 +350,64 @@ mon_memdump(int argc, char **argv, struct Trapframe *tf)
 	return 0;
 }
 
+// GDB-style debugging commands
+int
+mon_c(int argc, char **argv, struct Trapframe *tf)
+{
+	if (tf) {
+		// Clear tf clear
+		tf->tf_eflags &= (~FL_TF);
+		extern struct Env *curenv;
+		env_run(curenv);
+		// No return
+		assert(0);
+	} else {
+		cprintf("No executable file\n");
+	}
+	return 0;
+}
+
+int
+mon_si(int argc, char **argv, struct Trapframe *tf)
+{
+	if (tf) {
+		// Set tf bit
+		tf->tf_eflags |= FL_TF;
+		extern struct Env *curenv;
+		env_run(curenv);
+		// No return
+		assert(0);
+	} else {
+		cprintf("No executable file\n");
+	}
+	return 0;
+}
+
+int
+mon_x(int argc, char **argv, struct Trapframe *tf)
+{
+	if (tf) {
+		if (argc < 2) {
+			cprintf("Usage: x [ADDRESS IN HEX]\n");
+			return 0;
+		}
+
+		extern struct Env *curenv;
+		int *address = (int *)strtol(argv[1], NULL, 0);
+		pte_t *pte = pgdir_walk(curenv->env_pgdir, (void *)address, 0);
+
+		if (pte != NULL && (*pte & PTE_P)) {
+			cprintf("%d\n", *address);
+		} else {
+			cprintf("Unmapped address\n");
+		}
+
+	} else {
+		cprintf("No executable file\n");
+	}
+	return 0;
+}
+
 /***** Kernel monitor command interpreter *****/
 
 #define WHITESPACE "\t\r\n "
@@ -384,6 +456,22 @@ void
 monitor(struct Trapframe *tf)
 {
 	char *buf;
+
+	// Print the result of si command
+	if (tf && tf->tf_trapno == T_DEBUG) {
+		struct Eipdebuginfo info;
+
+		if (debuginfo_eip(tf->tf_eip, &info) == 0) {
+			// First line
+			cprintf("tf_eip=%08x\n", tf->tf_eip);
+			// Second line
+			cprintf("%s:%d: ", info.eip_file, info.eip_line);
+			for(int i = 0; i < info.eip_fn_namelen; i++){
+				cprintf("%c", info.eip_fn_name[i]);
+				cprintf("+%d\n", tf->tf_eip - info.eip_fn_addr);
+			}
+		}
+	}
 
 	cprintf("Welcome to the JOS kernel monitor!\n");
 	cprintf("Type 'help' for a list of commands.\n");
