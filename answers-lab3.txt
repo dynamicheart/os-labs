@@ -1,1 +1,63 @@
+# JOS LAB3 ANSWERS
+杨健邦 515030910223
+
+此文档的内容分两部分，第一部分是问题的解答，第二部分是讲challenge的实现。至于lab的各个
+Exercise实现的方法描述，在另外一个文档里面。
+
+## 第一部分 -- 问题的解答
+
+1. What is the purpose of having an individual handler function for each 
+exception/interrupt? (i.e., if all exceptions/interrupts were delivered to the 
+same handler, what feature that exists in the current implementation could not 
+be provided?)
+
+不同的exception/interrupt有不同的DPL，也就意味着有些exception/interrupt是不能让用户自
+己触发的，但是如果全用一个handler，DPL的方法也没有做到完全的代码隔离，这样可能会有安全问题。
+
+使用同一个handler，意味着我们要知道当前触发的是什么异常，有些CPU会把异常号自动入栈，但有的
+不会。因此，不是所有的的硬件都适用于用同一个handler来处理所有异常。
+
+2. Did you have to do anything to make the user/softint program behave 
+correctly? The grade script expects it to produce a general protection fault 
+trap 13), but softint's code says int $14. Why should this produce interrupt 
+vector 13? What happens if the kernel actually allows softint's int $14 
+instruction to invoke the kernel's page fault handler (which is interrupt 
+vector 14)?
+
+因为我们之前在为设置vector 13设置trap gate的时候将其DPL设置为0x0
+（只有硬件和kernel能够触发），也就是说用户不能自己触发vector13的异常，
+如果用户尝试触发这个异常，反而会触发一个保护异常。
+
+可以通过将vector13的trap gate的DPL设置成0x3来允许用户来触发page fault，但是这样的话，
+很多恶意程序，就能利用这个特性，来获取一些它们本不能够读到的数据，或者做一些其它的攻击。
+这样系统的安全性就会有问题。
+
+3. The break point test case will either generate a break point exception or a 
+general protection fault depending on how you initialized the break point 
+entry in the IDT (i.e., your call to SETGATE from trap_init). Why? How do you
+need to set it up in order to get the breakpoint exception to work as 
+specified above and what incorrect setup would cause it to trigger a general 
+protection fault?
+
+如果出现的是General protection，是因为设置trap gate的时候将break point exception的D
+PL设置成了0x0，意味着用户不能自己触发这个异常，只能是由硬件检测自动触发，用户触发只会出现保护
+异常。
+
+在初始化trap gate的时候，将break point的trap 
+gate的DPL设置成0x3即可，这样用户就能自己触发这个异常。
+
+4. What do you think is the point of these mechanisms, particularly in light 
+of what the user/softint test program does?
+
+这种机制的着眼点是权限控制，通过根据当前的权限等级来判断是否能够触发异常/中断，满足
+不同类型的异常中断的安全性需求以及功能需要。比如说为了功能性，可以让用户调用系统调用来实现某些
+功能，为了安全性，用户不能自己触发page fault之类的异常。
+
+## 第二部分 -- challenge的实现
+
+我借鉴了xv6的做法，写了一个脚本工具，kern/vectors.pl自动生成一个vector table，
+也就是各个异常或者中断的入口函数，因此不需要单独为每一个异常/中断用名字命名它们的入口函数。
+在设置trap gate的时候，可以用一个循环就可以初始化所有trap gate，不需要冗余地写很多初始化
+代码。
+
 
