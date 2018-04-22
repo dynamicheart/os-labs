@@ -68,6 +68,7 @@ struct Env {
 	int env_ipc_perm;		// Perm of page mapping received
 
 	// LAB3: might need code here for implementation of sbrk
+	uint32_t env_break;
 
 };
 
