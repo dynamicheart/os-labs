@@ -21,17 +21,19 @@ syscall(int num, int check, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, 
     //Lab 3: Your code here
 
     /* 
-     * eax                - syscall number
-     * edx, ecx, ebx, edi - arg1, arg2, arg3, arg4
-     * esi                - return pc
-     * ebp                - return esp
-     * esp                - trashed by sysenter
+     * eax                      - syscall number
+     * edx, ecx, ebx, edi, %esi - arg1, arg2, arg3, arg4
+     * (ebp)                    - return pc
+     * ebp                      - return esp
+     * esp                      - trashed by sysenter
      */
     
-	asm volatile(
+    asm volatile(
         // The only thing you need to save manully is ebp.
         // Esp is restored by sysexit 
-        "pushl %%ebp\n\t" 
+        "pushl %%ebp\n\t"
+        "leal after_sysenter_label%=, %%ebp\n\t"
+        "pushl %%ebp\n\t"
         
         // Don't miss ',' https://stackoverflow.com/questions/11274256/inline-assembly-errors-junk-4ebp-after-register
         "movl %%esp, %%ebp\n\t"
@@ -40,10 +42,10 @@ syscall(int num, int check, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, 
         //  - https://stackoverflow.com/questions/31529224/inline-assembly-lable-already-defined-error
         //  - https://stackoverflow.com/questions/3898435/labels-in-gcc-inline-assembly
         //  - https://gcc.gnu.org/onlinedocs/gcc/Extended-Asm.html#AssemblerTemplate
-        "leal after_sysenter_label%=, %%esi\n\t"
         "sysenter\n\t"
         "after_sysenter_label%=:\n\t"
 
+        "addl $4, %%esp\n\t"
         "popl %%ebp\n\t"
         
         // Eax edx ecx ebx edi except esi are in input/out list,
@@ -54,8 +56,9 @@ syscall(int num, int check, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, 
           "d" (a1),
           "c" (a2),
           "b" (a3),
-          "D" (a4)
-        : "%esi", "cc", "memory");
+          "D" (a4),
+          "S" (a5)
+        : "cc", "memory");
 
 
 	if(check && ret > 0)

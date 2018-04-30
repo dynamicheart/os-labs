@@ -112,23 +112,36 @@ trap_init_percpu(void)
 	// user space on that CPU.
 	//
 	// LAB 4: Your code here:
-
+	
 	// Setup a TSS so that we get the right stack
 	// when we trap to the kernel.
-	ts.ts_esp0 = KSTACKTOP;
-	ts.ts_ss0 = GD_KD;
+	thiscpu->cpu_ts.ts_esp0 = KSTACKTOP - cpunum() * (KSTKSIZE + KSTKGAP);
+	thiscpu->cpu_ts.ts_ss0 = GD_KD;
 
 	// Initialize the TSS slot of the gdt.
-	gdt[GD_TSS0 >> 3] = SEG16(STS_T32A, (uint32_t) (&ts),
-					sizeof(struct Taskstate), 0);
-	gdt[GD_TSS0 >> 3].sd_s = 0;
+	gdt[(GD_TSS0 + cpunum()) >> 3] = SEG16(STS_T32A, (uint32_t) (&thiscpu->cpu_ts),
+	 				sizeof(struct Taskstate), 0);
+	gdt[(GD_TSS0 + cpunum()) >> 3].sd_s = 0;
 
 	// Load the TSS selector (like other segment selectors, the
 	// bottom three bits are special; we leave them 0)
-	ltr(GD_TSS0);
+	ltr(GD_TSS0 + cpunum());
 
 	// Load the IDT
 	lidt(&idt_pd);
+
+	/* Enable sysenter inst. and sysexit inst.
+	 * MSRs are per-cpu.
+	 * Reference:
+	 *  - https://lwn.net/Articles/18414/
+	 *  - https://wiki.osdev.org/SYSENTER
+	 *  - https://elixir.bootlin.com/linux/v2.6.25/source/include/asm-x86/msr.h
+	 *  - https://wiki.osdev.org/MSR
+	 */
+	extern void sysenter_handler();
+	wrmsr(0x174, GD_KT, 0); /* SYSENTER_CS_MSR */
+	wrmsr(0x175, thiscpu->cpu_ts.ts_esp0, 0); /* SYSENTER_ESP_MSR */
+	wrmsr(0x176, (unsigned)sysenter_handler, 0); /* SYSENTER_EIP_MSR */
 }
 
 void
@@ -192,6 +205,11 @@ trap_dispatch(struct Trapframe *tf)
 		case T_PGFLT:
 			page_fault_handler(tf);
 			return;
+		case T_SYSCALL:
+			unlock_kernel();
+			tf->tf_regs.reg_eax = syscall(tf->tf_regs.reg_eax, 0, 0, 0, 0, 0);
+			lock_kernel();
+			return;
 		default:
 			break;
 	}
@@ -241,6 +259,8 @@ trap(struct Trapframe *tf)
 		// Acquire the big kernel lock before doing any
 		// serious kernel work.
 		// LAB 4: Your code here.
+		lock_kernel();
+
 		assert(curenv);
 
 		// Garbage collect if current enviroment is a zombie

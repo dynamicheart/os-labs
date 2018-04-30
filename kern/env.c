@@ -575,6 +575,8 @@ env_run(struct Env *e)
 		lcr3(PADDR(e->env_pgdir));
 	}
 
+	unlock_kernel();
+	
 	// ATTENTION: normal qemu will reboot when meeting triple fault.
 	// However 6.828 patched QEMU will print triple fault message 
 	// instead of rebooting.

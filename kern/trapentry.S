@@ -573,13 +573,13 @@ sysenter_handler:
 /*
  * Lab 3: Your code here for system call handling
  */
+  # push save return esp
+  pushl %ebp
 	# push save return PC
+  movl (%ebp), %ebp
+  pushl %ebp
+	# push args
 	pushl %esi
-	# push save return esp
-	pushl %ebp
-	# push arg 5 useless
-	pushl %esi
-	# push arg 4 - 1
 	pushl %edi
 	pushl %ebx
 	pushl %ecx
@@ -590,18 +590,11 @@ sysenter_handler:
 	# pop syscall number
 
 sysenter_exit:
-  # pop syscall number
-	popl %esi
-	# pop args 1-5
-	popl %esi
-	popl %esi
-	popl %esi
-	popl %esi
-	popl %esi
+  addl $24, %esp
 	# When SYSEXIT is called, EIP is set to EDX and ESP is set to ECX
 	# https://wiki.osdev.org/SYSEXIT
-	popl %ecx
 	popl %edx
+  popl %ecx
 	sysexit
 
 /*

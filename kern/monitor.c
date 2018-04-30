@@ -357,7 +357,6 @@ mon_c(int argc, char **argv, struct Trapframe *tf)
 	if (tf) {
 		// Clear tf clear
 		tf->tf_eflags &= (~FL_TF);
-		extern struct Env *curenv;
 		env_run(curenv);
 		// No return
 		assert(0);
@@ -373,7 +372,6 @@ mon_si(int argc, char **argv, struct Trapframe *tf)
 	if (tf) {
 		// Set tf bit
 		tf->tf_eflags |= FL_TF;
-		extern struct Env *curenv;
 		env_run(curenv);
 		// No return
 		assert(0);
@@ -392,7 +390,6 @@ mon_x(int argc, char **argv, struct Trapframe *tf)
 			return 0;
 		}
 
-		extern struct Env *curenv;
 		int *address = (int *)strtol(argv[1], NULL, 0);
 		pte_t *pte = pgdir_walk(curenv->env_pgdir, (void *)address, 0);
 
