@@ -105,7 +105,7 @@ i386_init(void)
 	// Touch all you want.
 	// for (i = 0; i < 3; i++)
 	// 	ENV_CREATE(user_yield, ENV_TYPE_USER);
-	ENV_CREATE(user_faultnostack, ENV_TYPE_USER);
+	ENV_CREATE(user_forktree, ENV_TYPE_USER);
 	//ENV_CREATE(user_primes, ENV_TYPE_USER);
 #endif // TEST*
 
