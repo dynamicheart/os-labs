@@ -595,6 +595,7 @@ sysenter_exit:
 	# https://wiki.osdev.org/SYSEXIT
 	popl %edx
 	popl %ecx
+	sti
 	sysexit
 
 /*
