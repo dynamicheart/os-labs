@@ -325,7 +325,41 @@ static int
 sys_ipc_try_send(envid_t envid, uint32_t value, void *srcva, unsigned perm)
 {
 	// LAB 4: Your code here.
-	panic("sys_ipc_try_send not implemented");
+	int res;
+	struct Env *env_store;
+	struct Page *pp;
+	pte_t *pte_store;
+
+	if ((res = envid2env(envid, &env_store, 0)) < 0)
+		return res;
+	if (!env_store->env_ipc_recving)
+		return -E_IPC_NOT_RECV;
+	if ((uint32_t)env_store->env_ipc_dstva < UTOP) {
+		// Receiver asks for one page but sender doesn't want to send
+		if (((uint32_t)srcva) >= UTOP)
+			return -E_INVAL;
+		if ((uint32_t)srcva % PGSIZE != 0)
+			return -E_INVAL;
+		if (!(perm & PTE_U) || !(perm & PTE_P) || (perm & (~(PTE_SYSCALL))))
+			return -E_INVAL;
+		if ((pp = page_lookup(curenv->env_pgdir, srcva, &pte_store)) == NULL)
+			return -E_INVAL;
+		if (!(*pte_store & PTE_P) || !(*pte_store & PTE_U))
+			return -E_INVAL;
+		if ((perm & PTE_W) && !(*pte_store & PTE_W))
+			return -E_INVAL;
+		if ((res = page_insert(env_store->env_pgdir, pp, env_store->env_ipc_dstva, perm)) < 0)
+			return res;
+		env_store->env_ipc_perm = perm;
+	} else
+		env_store->env_ipc_perm = 0;
+	
+	env_store->env_ipc_recving = 0;
+	env_store->env_ipc_from = curenv->env_id;
+	env_store->env_ipc_value = value;
+	env_store->env_status = ENV_RUNNABLE;
+
+	return 0;
 }
 
 // Block until a value is ready.  Record that you want to receive
@@ -343,8 +377,20 @@ static int
 sys_ipc_recv(void *dstva)
 {
 	// LAB 4: Your code here.
-	panic("sys_ipc_recv not implemented");
-	return 0;
+	curenv->env_ipc_recving = 1;
+
+	if ((uint32_t)dstva < UTOP && (uint32_t)dstva % PGSIZE != 0)
+		return -E_INVAL;
+
+	curenv->env_ipc_dstva = dstva;
+
+	curenv->env_status = ENV_NOT_RUNNABLE;
+
+	// The system call will eventually return 0 on success.
+	curenv->env_tf.tf_regs.reg_eax = 0;
+
+	sched_yield();
+	assert(0);
 }
 
 static int
@@ -433,15 +479,18 @@ syscall(uint32_t syscallno, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, 
 			asm volatile("movl 32(%%ebp), %0":"=r"(curenv->env_tf.tf_eip):);
 			asm volatile("movl 36(%%ebp), %0":"=r"(curenv->env_tf.tf_esp):);
 			sys_yield();
-			// no return
 			assert(0);
 		case SYS_sbrk:
 			res = sys_sbrk(a1);
 			break;
 		case SYS_ipc_try_send:
+			res = sys_ipc_try_send((envid_t)a1, (uint32_t)a2, (void *)a3, (unsigned)a4);
 			break;
 		case SYS_ipc_recv:
-			break;
+			asm volatile("movl 32(%%ebp), %0":"=r"(curenv->env_tf.tf_eip):);
+			asm volatile("movl 36(%%ebp), %0":"=r"(curenv->env_tf.tf_esp):);
+			res = sys_ipc_recv((void *)a1);
+			assert(0);
 		default:
 			res = -E_INVAL;
 	}
