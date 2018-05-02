@@ -24,7 +24,9 @@ ipc_recv(envid_t *from_env_store, void *pg, int *perm_store)
 {
 	// LAB 4: Your code here.
 	int res;
+	const volatile struct Env* myenv;
 
+	myenv = &envs[ENVX(sys_getenvid())];
 	if (pg)
 		res = sys_ipc_recv(pg);
 	else
@@ -37,11 +39,11 @@ ipc_recv(envid_t *from_env_store, void *pg, int *perm_store)
 	}
 
 	if (from_env_store)
-		*from_env_store = thisenv->env_ipc_from;
+		*from_env_store = myenv->env_ipc_from;
 	if (perm_store)
-		*perm_store = thisenv->env_ipc_perm;
+		*perm_store = myenv->env_ipc_perm;
 
-	return (int32_t)thisenv->env_ipc_value;
+	return (int32_t)myenv->env_ipc_value;
 }
 
 // Send 'val' (and 'pg' with 'perm', if 'pg' is nonnull) to 'toenv'.
