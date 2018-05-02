@@ -144,6 +144,10 @@ fork(void)
 int
 sfork(void)
 {
+#ifndef USE_SFORK
+	panic("sfork not enabled");
+	return -E_INVAL;
+#else
 	envid_t envid;
 	uint32_t addr;
 	int r;
@@ -190,4 +194,5 @@ sfork(void)
 		panic("sys_env_set_status: %e", r);
 
 	return envid;
+#endif
 }

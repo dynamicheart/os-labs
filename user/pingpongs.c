@@ -8,6 +8,9 @@ uint32_t val;
 void
 umain(int argc, char **argv)
 {
+#ifndef USE_SFORK
+	panic("sfork not enabled");
+#else
 	envid_t who;
 	uint32_t i;
 
@@ -29,5 +32,5 @@ umain(int argc, char **argv)
 		if (val == 10)
 			return;
 	}
-
+#endif
 }
