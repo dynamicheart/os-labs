@@ -25,7 +25,7 @@ ipc_recv(envid_t *from_env_store, void *pg, int *perm_store)
 	// LAB 4: Your code here.
 	int res;
 	const volatile struct Env* myenv;
-#ifdef USE_SFORK
+#ifdef ENABLE_SFORK
 	myenv = &envs[ENVX(sys_getenvid())];
 #else
 	myenv = thisenv;

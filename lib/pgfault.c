@@ -29,7 +29,7 @@ set_pgfault_handler(void (*handler)(struct UTrapframe *utf))
 	if (_pgfault_handler == 0) {
 		// First time through!
 		// LAB 4: Your code here.
-#ifdef USE_SFORK
+#ifdef ENABLE_SFORK
 		const volatile struct Env *myenv = &envs[ENVX(sys_getenvid())];
 #else
 		const volatile struct Env *myenv = thisenv;

@@ -87,12 +87,6 @@ i386_init(void)
 	// Starting non-boot CPUs
 	boot_aps();
 
-#ifdef USE_TICKET_SPIN_LOCK
-	unlock_kernel();
-	spinlock_test();
-	lock_kernel();
-#endif
-
 	// Should always have idle processes at first.
 	int i;
 	for (i = 0; i < NCPU; i++)
@@ -103,10 +97,15 @@ i386_init(void)
 	ENV_CREATE(TEST, ENV_TYPE_USER);
 #else
 	// Touch all you want.
-	// for (i = 0; i < 3; i++)
-	// 	ENV_CREATE(user_yield, ENV_TYPE_USER);
-	ENV_CREATE(user_pingpong, ENV_TYPE_USER);
+	for (i = 0; i < 3; i++)
+		ENV_CREATE(user_yield, ENV_TYPE_USER);
 #endif // TEST*
+
+#ifdef USE_TICKET_SPIN_LOCK
+	unlock_kernel();
+	spinlock_test();
+	lock_kernel();
+#endif
 
 	// Schedule and run the first user environment!
 	sched_yield();

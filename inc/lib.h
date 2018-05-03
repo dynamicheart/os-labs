@@ -30,9 +30,9 @@ extern const volatile struct Env envs[NENV];
 extern const volatile struct Page pages[];
 
 // sfork
-//#define USE_SFORK
-#ifdef USE_SFORK
-#define whichenv (&envs[ENVX(sys_getenvid())])
+//#define ENABLE_SFORK
+#ifdef ENABLE_SFORK
+#define curenv (&envs[ENVX(sys_getenvid())])
 #endif
 
 // exit.c

@@ -144,7 +144,7 @@ fork(void)
 int
 sfork(void)
 {
-#ifndef USE_SFORK
+#ifndef ENABLE_SFORK
 	panic("sfork not enabled");
 	return -E_INVAL;
 #else
