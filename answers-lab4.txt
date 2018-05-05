@@ -1,0 +1,158 @@
+# JOS LAB4 ANSWERS
+杨健邦 515030910223
+
+此文档的内容分两部分，第一部分是问题的解答，第二部分是讲challenge的实现。至于lab的各个
+Exercise实现的方法描述，在另外一个文档里面。
+
+## 第一部分 -- 问题的解答
+1. Compare kern/mpentry.S side by side with boot/boot.S. Bearing in mind that 
+kern/mpentry.S is compiled and linked to run above KERNBASE just like 
+everything else in the kernel, what is the purpose of macro MPBOOTPHYS? Why is 
+it necessary in kern/mpentry.S but not in boot/boot.S? In other words, what 
+could go wrong if it were omitted in kern/mpentry.S? 
+Hint: recall the differences between the link address and the load address 
+that we have discussed in Lab 1.
+
+因为在mpentry.S里面的地址在链接时被链接成link address(高地址)，但是启动其它CPU的时候，
+这些CPU还未开启保护模式以及地址翻译模式，因此通过link address会导致访存错误，因此需要一个宏
+MPBOOTPHYS，来将mpentry.S里面开启地址翻译之前的代码中的地址转换为load address(物理地址)。
+
+2. It seems that using the big kernel lock guarantees that only one CPU can 
+run the kernel code at a time. Why do we still need separate kernel stacks for 
+each CPU? Describe a scenario in which using a shared kernel stack will go 
+wrong, even with the protection of the big kernel lock.
+
+因为在trap或者中断来的时候，CPU会自动将某些寄存器的值(eip, esp, eflags等)从内核栈的栈顶开
+始自动入栈，在栈顶形成一个trapframe，然后在trap函数中才拷贝到env的tf成员中。自动入栈这件事是
+由硬件来做的，这部分无法加锁。如果多个CPU同时trap或者中断，由于硬件操作入栈无法加锁，那么将可
+能导致trapframe拷贝之前里面的值被覆盖掉，从而复制到了一个错误的trapframe。
+
+3. In your implementation of env_run() you should have called lcr3(). Before 
+and after the call to lcr3(), your code makes references (at least it should) 
+to the variable e, the argument to env_run. Upon loading the %cr3 register, 
+the addressing context used by the MMU is instantly changed. But a virtual 
+address (namely e) has meaning relative to a given address context--the 
+address context specifies the physical address to which the virtual address 
+maps. Why can the pointer e be dereferenced both before and after the 
+addressing switch?
+
+e是指向env数组中某个成员的地址，而env数组被映射到了UENVS这个虚拟地址。这个映射是在pmap.c的
+mem_init文件中完成的，mem_init初始化了kern_pgdir，此后的所有新env的env_pgdir都是以这个
+kern_pgdir为模板而进一步修改的，这意味着所有env的env_pgdir都会有对env数组的映射，因此，无
+论在哪个环境中，都能对e进行解引用。
+
+## 第二部分 -- challenge的实现
+
+本次lab，我选择了sfork()这个challenge，考虑是这个challenge模块化比较好，实现sfork()
+不需要对原来的代码进行太大的改动。
+
+1. 首先要映射除了栈之外的所有页。从UTEXT开始一直映射到end(从user.ld中可知，end是一个
+label，标记着用户程序的text段以及data段的结束位置)，这里使用sys_page_map系统调用即可。
+
+2. 映射栈的页。要注意的是这里是将parent和child的栈都映射成copy-on-write模式，因此
+继续从end 开始扫描，一直到USTACKTOP，将与栈相关的页映射，复用fork的工具函数duppage。
+
+3. Exceptionstack同样需要分配一块新的物理页。
+
+4. 实现thisenv的语义。由于parent和child的thisenv的映射相同值一样，不再能分别指向parent、
+child的env)，语义已经失效，因此要获取当前的env，必须动态使用系统调用sys_getenvid来得到
+当前的env_id，再从envs数组中获得env。仿照thiscpu的方法，在lib.h中定义了一个新的宏
+
+#define curenv (&envs[ENVX(sys_getenvid())])
+
+来让用户获取当前的env，这里不对原来的thisenv进行修改而使用一个新的宏，因此对不使用sfork的旧
+程序有兼容性。
+
+5. 优化。使用curenv意味着每次都要进行系统调用，开销很大，特别是在库函数lib/ipc.c和
+pgfault.c中。事实上，并不是所有的程序都需要使用sfork，因此可以设置一个宏USE_SFORK，
+如果有需要使用sfork的应用程序，才将宏的注释去掉。
+
+6. 测试。原始代码给了一个使用sfork的用户程序pingpongs.c，类似的，我写了一个新的用户程序
+forktrees.c。
+
+测试结果如下:
+forktrees.c
+
+[00000000] new env 00001008
+1008: I am ''
+[00001008] new env 00001009
+[00001008] new env 0000100a
+1009: I am '0'
+[00001009] new env 0000100b
+[00001009] new env 0000100c
+100b: I am '00'
+[0000100b] new env 0000100d
+[00001008] exiting gracefully
+[00001008] free env 00001008
+100a: I am '1'
+[0000100a] new env 00002008
+[00001009] exiting gracefully
+[00001009] free env 00001009
+[0000100b] new env 00002009
+100c: I am '01'
+[0000100c] new env 0000100e
+100d: I am '000'
+[0000100d] exiting gracefully
+[0000100d] free env 0000100d
+[0000100a] new env 0000200d
+[0000100c] new env 0000100f
+100e: I am '010'
+[0000100e] exiting gracefully
+[0000100e] free env 0000100e
+2008: I am '10'
+[00002008] new env 0000200e
+[0000100b] exiting gracefully
+[0000100b] free env 0000100b
+2009: I am '001'
+[00002009] exiting gracefully
+[00002009] free env 00002009
+[0000100a] exiting gracefully
+[0000100a] free env 0000100a
+200d: I am '11'
+[0000200d] new env 0000200a
+[00002008] new env 00003009
+[0000100c] exiting gracefully
+[0000100c] free env 0000100c
+200e: I am '100'
+[0000200e] exiting gracefully
+[0000200e] free env 0000200e
+100f: I am '011'
+[0000100f] exiting gracefully
+[0000100f] free env 0000100f
+[0000200d] new env 0000200f
+[00002008] exiting gracefully
+[00002008] free env 00002008
+200a: I am '110'
+[0000200a] exiting gracefully
+[0000200a] free env 0000200a
+3009: I am '101'
+[00003009] exiting gracefully
+[00003009] free env 00003009
+[0000200d] exiting gracefully
+[0000200d] free env 0000200d
+200f: I am '111'
+[0000200f] exiting gracefully
+[0000200f] free env 0000200f
+
+pingpongs
+[00001008] new env 00001009
+i am 00001008; curenv is 0xeec00400
+send 0 from 1008 to 1009
+1009 got 0 from 1008 (curenv is 0xeec00480 1009)
+1008 got 1 from 1009 (curenv is 0xeec00400 1008)
+1009 got 2 from 1008 (curenv is 0xeec00480 1009)
+1008 got 3 from 1009 (curenv is 0xeec00400 1008)
+1009 got 4 from 1008 (curenv is 0xeec00480 1009)
+1008 got 5 from 1009 (curenv is 0xeec00400 1008)
+1009 got 6 from 1008 (curenv is 0xeec00480 1009)
+1008 got 7 from 1009 (curenv is 0xeec00400 1008)
+1009 got 8 from 1008 (curenv is 0xeec00480 1009)
+1008 got 9 from 1009 (curenv is 0xeec00400 1008)
+[00001008] exiting gracefully
+[00001008] free env 00001008
+1009 got 10 from 1008 (curenv is 0xeec00480 1009)
+[00001009] exiting gracefully
+[00001009] free env 00001009
+
+测试成功。
+
