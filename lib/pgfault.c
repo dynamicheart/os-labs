@@ -29,7 +29,16 @@ set_pgfault_handler(void (*handler)(struct UTrapframe *utf))
 	if (_pgfault_handler == 0) {
 		// First time through!
 		// LAB 4: Your code here.
-		panic("set_pgfault_handler not implemented");
+#ifdef ENABLE_SFORK
+		const volatile struct Env *myenv = &envs[ENVX(sys_getenvid())];
+#else
+		const volatile struct Env *myenv = thisenv;
+#endif
+		if ((r = sys_page_alloc(myenv->env_id, (void *)(UXSTACKTOP - PGSIZE), PTE_P | PTE_U | PTE_W)) < 0)
+			panic("failed to allocate an exception stack");
+
+		if ((r = sys_env_set_pgfault_upcall(myenv->env_id, _pgfault_upcall)) < 0)
+			panic("failed to set pgfault upcall");
 	}
 
 	// Save handler pointer for assembly to call.

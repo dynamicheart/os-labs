@@ -5,6 +5,8 @@
 #include <inc/mmu.h>
 #include <inc/x86.h>
 
+struct Segdesc *uaddr_gdt;
+struct Segdesc seg_backup;
 
 // Call this function with ring0 privilege
 void evil()
@@ -25,6 +27,14 @@ void evil()
 	outb(0x3f8, '!');
 	outb(0x3f8, '!');
 	outb(0x3f8, '\n');
+}
+
+void fun_wrapper()
+{
+    evil();
+    uaddr_gdt[GD_TSS0 >> 3] = seg_backup;
+    asm volatile("leave"::);
+    asm volatile("lret"::);
 }
 
 static void
@@ -49,12 +59,26 @@ void ring0_call(void (*fun_ptr)(void)) {
     //        file if necessary.
 
     // Lab3 : Your Code Here
+    // 1. Read gdtd
+    struct Pseudodesc gdtd;
+    sgdt(&gdtd);
+    // 2. Map gdt in user address space
+    uaddr_gdt = (struct Segdesc*)ROUNDUP(sys_sbrk(0), PGSIZE);
+    sys_map_kernel_page((void *)(gdtd.pd_base), (void*)uaddr_gdt);
+    uaddr_gdt = (struct Segdesc *)((void*)uaddr_gdt + PGOFF(gdtd.pd_base));
+
+    // 3. Setup callgate, GD_UD and GD_UT are also OK
+    seg_backup = uaddr_gdt[GD_TSS0 >> 3];
+
+    SETCALLGATE(*(struct Gatedesc*)&uaddr_gdt[GD_TSS0 >> 3], GD_KT, fun_wrapper, 0x3);
+
+    asm volatile("lcall %0, $0"::"i"(GD_TSS0));
 }
 
 void
 umain(int argc, char **argv)
 {
-        // call the evil function in ring0
+    // call the evil function in ring0
 	ring0_call(&evil);
 
 	// call the evil function in ring3

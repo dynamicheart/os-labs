@@ -119,6 +119,14 @@ env_init(void)
 {
 	// Set up envs array
 	// LAB 3: Your code here.
+	int i;
+	for (i = NENV - 1; i >= 0; i--) {
+		envs[i].env_id = 0;
+		envs[i].env_status = ENV_FREE;
+		envs[i].env_link = env_free_list;
+		env_free_list = &envs[i];
+	}
+	assert(env_free_list == &envs[0]);
 
 	// Per-CPU part of the initialization
 	env_init_percpu();
@@ -182,6 +190,9 @@ env_setup_vm(struct Env *e)
 	//    - The functions in kern/pmap.h are handy.
 
 	// LAB 3: Your code here.
+	e->env_pgdir = (pde_t *)page2kva(p);
+	memmove(e->env_pgdir, kern_pgdir, PGSIZE);
+	p->pp_ref++;
 
 	// UVPT maps the env's own page table read-only.
 	// Permissions: kernel R, user R
@@ -223,6 +234,7 @@ env_alloc(struct Env **newenv_store, envid_t parent_id)
 	e->env_type = ENV_TYPE_USER;
 	e->env_status = ENV_RUNNABLE;
 	e->env_runs = 0;
+	e->env_break = 0;
 
 	// Clear out all the saved register state,
 	// to prevent the register values
@@ -247,6 +259,7 @@ env_alloc(struct Env **newenv_store, envid_t parent_id)
 
 	// Enable interrupts while in user mode.
 	// LAB 4: Your code here.
+	e->env_tf.tf_eflags = FL_IF;
 
 	// Clear the page fault handler until user installs one.
 	e->env_pgfault_upcall = 0;
@@ -279,6 +292,25 @@ region_alloc(struct Env *e, void *va, size_t len)
 	//   'va' and 'len' values that are not page-aligned.
 	//   You should round va down, and round (va + len) up.
 	//   (Watch out for corner-cases!)
+	void *a, *last;
+	struct Page *pp = NULL;
+	int res = 0;
+
+	a = ROUNDDOWN(va, PGSIZE);
+	last = ROUNDUP(va + len, PGSIZE);
+	for(;;) {
+		if (a == last)
+			return;
+		// Allocate a page for the page directory
+		if (!(pp = page_alloc(0)))
+			panic("region_alloc: %e", -E_NO_MEM);
+
+		// Note: not checking remapping situation
+		if ((res = page_insert(e->env_pgdir, pp, a, PTE_W | PTE_U)) < 0)
+			panic("region_alloc: %e", res);
+
+		a += PGSIZE;
+	}
 }
 
 //
@@ -335,11 +367,50 @@ load_icode(struct Env *e, uint8_t *binary, size_t size)
 	//  What?  (See env_run() and env_pop_tf() below.)
 
 	// LAB 3: Your code here.
+	lcr3(PADDR(e->env_pgdir));
+
+	struct Elf *elf;
+	struct Proghdr *ph, *eph;
+
+	// TODO: what is the usage of the arg size?
+	elf = (struct Elf*)binary;
+
+	if (elf->e_magic != ELF_MAGIC)
+		panic("load_icode: Invalid ELF");
+
+	ph = (struct Proghdr *) ((uint8_t *) elf + elf->e_phoff);
+	eph = ph + elf->e_phnum;
+
+	for (; ph < eph; ph++) {
+		if (ph->p_type == ELF_PROG_LOAD) {
+			assert(ph->p_memsz >= ph->p_filesz);
+			// Allocates space
+			region_alloc(e, (void *)ph->p_va, ph->p_memsz);
+			// Now copy segement to ph_p_va
+			memmove((void *)ph->p_va, binary + ph->p_offset, ph->p_filesz);
+			// Set the remaining memory to 0
+			memset((void *)ph->p_va + ph->p_filesz, 0, ph->p_memsz - ph->p_filesz);
+			// Set env's current break
+			e->env_break = (ph->p_va + ph->p_memsz) > e->env_break ? ph->p_va + ph->p_memsz : e->env_break;
+		}
+	}
+
+	assert(elf->e_entry);
+	e->env_tf.tf_eip = elf->e_entry;
 
 	// Now map one page for the program's initial stack
 	// at virtual address USTACKTOP - PGSIZE.
 
 	// LAB 3: Your code here.
+
+	// Note: USTACKTOP is not mapped in page table.
+	region_alloc(e, (void *)(USTACKTOP - PGSIZE), PGSIZE);
+
+	// Esp has been set in env_alloc function.
+	e->env_tf.tf_esp = USTACKTOP;
+
+
+	lcr3(PADDR(kern_pgdir));
 }
 
 //
@@ -353,7 +424,15 @@ void
 env_create(uint8_t *binary, size_t size, enum EnvType type)
 {
 	// LAB 3: Your code here.
+	struct Env *new_env = NULL;
+	int res = 0;
+	if ((res = env_alloc(&new_env, 0)) < 0)
+		panic("env_create: %e", res);
 
+	load_icode(new_env, binary, size);
+
+	new_env->env_type = type;
+	
 	// If this is the file server (type == ENV_TYPE_FS) give it I/O privileges.
 	// LAB 5: Your code here.
 }
@@ -485,7 +564,26 @@ env_run(struct Env *e)
 	//	e->env_tf to sensible values.
 
 	// LAB 3: Your code here.
+	// TODO: Determine wheather it is a context switch
+	if (e != curenv) {
+		// Context switch
+		if (curenv && curenv->env_status == ENV_RUNNING)
+			curenv->env_status = ENV_RUNNABLE;
 
-	panic("env_run not yet implemented");
+		curenv = e;
+		
+		curenv->env_status = ENV_RUNNING;
+		
+		curenv->env_runs++;
+
+		lcr3(PADDR(e->env_pgdir));
+	}
+
+	unlock_kernel();
+	
+	// ATTENTION: normal qemu will reboot when meeting triple fault.
+	// However 6.828 patched QEMU will print triple fault message 
+	// instead of rebooting.
+	env_pop_tf(&e->env_tf);
 }
 
