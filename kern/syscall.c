@@ -153,7 +153,13 @@ sys_env_set_trapframe(envid_t envid, struct Trapframe *tf)
 	// LAB 5: Your code here.
 	// Remember to check whether the user has supplied us with a good
 	// address!
-	panic("sys_env_set_trapframe not implemented");
+	int res;
+	struct Env *env_store;
+	if ((res = envid2env(envid, &env_store, 1)) < 0)
+		return res;
+	env_store->env_tf = *tf;
+
+	return 0;
 }
 
 // Set the page fault upcall for 'envid' by modifying the corresponding struct
@@ -350,10 +356,7 @@ sys_ipc_try_send(envid_t envid, uint32_t value, void *srcva, unsigned perm)
 		return res;
 	if (!env_store->env_ipc_recving)
 		return -E_IPC_NOT_RECV;
-	if ((uint32_t)env_store->env_ipc_dstva < UTOP) {
-		// Receiver asks for one page but sender doesn't want to send
-		if (((uint32_t)srcva) >= UTOP)
-			return -E_INVAL;
+	if ((uint32_t)env_store->env_ipc_dstva < UTOP && (uint32_t)srcva < UTOP) {
 		if ((uint32_t)srcva % PGSIZE != 0)
 			return -E_INVAL;
 		if (!(perm & PTE_U) || !(perm & PTE_P) || (perm & (~(PTE_SYSCALL))))
@@ -487,6 +490,9 @@ syscall(uint32_t syscallno, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, 
 			break;
 		case SYS_env_set_status:
 			res = sys_env_set_status((envid_t)a1, (int)a2);
+			break;
+		case SYS_env_set_trapframe:
+			res = sys_env_set_trapframe((envid_t)a1, (struct Trapframe *)a2);
 			break;
 		case SYS_env_set_pgfault_upcall:
 			res = sys_env_set_pgfault_upcall((envid_t)a1, (void *)a2);

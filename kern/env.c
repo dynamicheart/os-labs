@@ -424,17 +424,20 @@ void
 env_create(uint8_t *binary, size_t size, enum EnvType type)
 {
 	// LAB 3: Your code here.
-	struct Env *new_env = NULL;
+	struct Env *newenv_store = NULL;
 	int res = 0;
-	if ((res = env_alloc(&new_env, 0)) < 0)
+	if ((res = env_alloc(&newenv_store, 0)) < 0)
 		panic("env_create: %e", res);
 
-	load_icode(new_env, binary, size);
+	load_icode(newenv_store, binary, size);
 
-	new_env->env_type = type;
-	
+	newenv_store->env_type = type;
+
 	// If this is the file server (type == ENV_TYPE_FS) give it I/O privileges.
 	// LAB 5: Your code here.
+	// https://wiki.osdev.org/Security#I.2FO_Privilege_Level
+	if (type == ENV_TYPE_FS)
+		newenv_store->env_tf.tf_eflags |= FL_IOPL_3;
 }
 
 //
