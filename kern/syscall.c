@@ -158,6 +158,8 @@ sys_env_set_trapframe(envid_t envid, struct Trapframe *tf)
 	if ((res = envid2env(envid, &env_store, 1)) < 0)
 		return res;
 	env_store->env_tf = *tf;
+	tf->tf_cs |= 0x3;
+	tf->tf_eflags |= FL_IF;
 
 	return 0;
 }
