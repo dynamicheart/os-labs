@@ -1,0 +1,212 @@
+# JOS LAB5 ANSWERS
+杨健邦 515030910223
+
+此文档的内容分两部分，第一部分是问题的解答，第二部分是讲challenge的实现。至于lab的各个
+Exercise实现的方法描述，在另外一个文档里面。
+
+## 第一部分 -- 问题的解答
+1. How long approximately did it take you to do this lab?
+
+- 除了challenge和文档，所有的exercise大约花了我半天时间(6-7个小时)。
+- challenge我选择了block cache eviction policy，花了大约4个小时来完成。
+- 文档和answer大约2-3个小时。
+
+## 第二部分 -- challenge的实现
+本次lab，我选择了block cache eviction policy这个challenge。
+
+1. 思路：
+- 使用LRU的近似算法clock page-removal algorithm, 页表条目中PTE_A位是由硬件自动置
+上的，代表的是从上次置零开始数据是否被访问过，而PTE_A位清零是由操作系统来执行的。通过查询相应
+页表条目中的PTE_A位和清除其PTE_A位来实现此算法。
+
+- 定义一个全局数组，来表示block cache最多能使用的物理页数量。当数组满了之后，如果再有block 
+page fault，就根据clock page-removal algorithm找到数据中要被替换的candidate进行替换。
+
+2. 实现要点：
+- 第0-2号block记录着super block、bitmap block以及其备份等信息，其作用与其它普通的block
+不太一样，而且它们需要被经常访问和修改，不应该被替换。
+
+- 为了尽可能的避免对原先代码产生影响，这次是用一个宏来开启和关闭block cache eviction
+模式，详情请看lib.h。
+
+- 清除PTE_A是通过sys_page_map系统调用的方法，这是为了避免对原先代码产生过多修改（写一个新的
+系统调用来单独清除PTE_A）。但是sys_page_map同时也会清除PTE_D位，因此在清除PTE_A之前先检查
+PTE_D，如果PTE_D为1，则先将页flush之后，再清除PTE_A。
+
+3. 使用方法：
+- 将inc/lib.h中的#define USE_EVICT_POLICY的注释去掉。
+
+4. 测试：
+- 将数组的大小设置为8，运行 make run-testfile，测试成功，结果如下：
+
+FS is running
+FS can do I/O
+Device 1 presence: 1
+block cache is good
+superblock is good
+bitmap is good
+alloc_block is good
+No eviction!! Map block 12 to 0x1000c000
+file_open is good
+No eviction!! Map block 3 to 0x10003000
+file_get_block is good
+file_flush is good
+file_truncate is good
+file rewrite is good
+serve_open is good
+file_stat is good
+file_read is good
+file_close is good
+stale fileid is good
+No eviction!! Map block 14 to 0x1000e000
+file_write is good
+file_read after file_write is good
+open is good
+No eviction!! Map block 15 to 0x1000f000
+No eviction!! Map block 16 to 0x10010000
+No eviction!! Map block 17 to 0x10011000
+No eviction!! Map block 18 to 0x10012000
+No eviction!! Map block 19 to 0x10013000
+Eviction!! Evict block 20. Clock arm 0
+Evict 0x1000c000 with 0x10014000
+Eviction!! Evict block 12. Clock arm 1
+Evict 0x10003000 with 0x1000c000
+Eviction!! Evict block 21. Clock arm 2
+Evict 0x1000e000 with 0x10015000
+Eviction!! Evict block 22. Clock arm 3
+Evict 0x1000f000 with 0x10016000
+Eviction!! Evict block 23. Clock arm 4
+Evict 0x10010000 with 0x10017000
+Eviction!! Evict block 24. Clock arm 5
+Evict 0x10011000 with 0x10018000
+Eviction!! Evict block 25. Clock arm 6
+Evict 0x10012000 with 0x10019000
+Eviction!! Evict block 26. Clock arm 7
+Evict 0x10013000 with 0x1001a000
+Eviction!! Evict block 27. Clock arm 2
+Evict 0x10015000 with 0x1001b000
+Eviction!! Evict block 28. Clock arm 3
+Evict 0x10016000 with 0x1001c000
+Eviction!! Evict block 29. Clock arm 4
+Evict 0x10017000 with 0x1001d000
+Eviction!! Evict block 30. Clock arm 5
+Evict 0x10018000 with 0x1001e000
+Eviction!! Evict block 31. Clock arm 7
+Evict 0x1001a000 with 0x1001f000
+Eviction!! Evict block 32. Clock arm 0
+Evict 0x10014000 with 0x10020000
+Eviction!! Evict block 33. Clock arm 2
+Evict 0x1001b000 with 0x10021000
+Eviction!! Evict block 34. Clock arm 3
+Evict 0x1001c000 with 0x10022000
+Eviction!! Evict block 35. Clock arm 4
+Evict 0x1001d000 with 0x10023000
+Eviction!! Evict block 36. Clock arm 5
+Evict 0x1001e000 with 0x10024000
+Eviction!! Evict block 37. Clock arm 7
+Evict 0x1001f000 with 0x10025000
+Eviction!! Evict block 38. Clock arm 0
+Evict 0x10020000 with 0x10026000
+Eviction!! Evict block 39. Clock arm 2
+Evict 0x10021000 with 0x10027000
+Eviction!! Evict block 40. Clock arm 3
+Evict 0x10022000 with 0x10028000
+Eviction!! Evict block 41. Clock arm 4
+Evict 0x10023000 with 0x10029000
+Eviction!! Evict block 42. Clock arm 5
+Evict 0x10024000 with 0x1002a000
+Eviction!! Evict block 43. Clock arm 7
+Evict 0x10025000 with 0x1002b000
+Eviction!! Evict block 44. Clock arm 0
+Evict 0x10026000 with 0x1002c000
+Eviction!! Evict block 45. Clock arm 2
+Evict 0x10027000 with 0x1002d000
+Eviction!! Evict block 15. Clock arm 2
+Evict 0x1002d000 with 0x1000f000
+Eviction!! Evict block 16. Clock arm 3
+Evict 0x10028000 with 0x10010000
+Eviction!! Evict block 17. Clock arm 4
+Evict 0x10029000 with 0x10011000
+Eviction!! Evict block 18. Clock arm 5
+Evict 0x1002a000 with 0x10012000
+Eviction!! Evict block 19. Clock arm 6
+Evict 0x10019000 with 0x10013000
+Eviction!! Evict block 20. Clock arm 7
+Evict 0x1002b000 with 0x10014000
+Eviction!! Evict block 21. Clock arm 0
+Evict 0x1002c000 with 0x10015000
+Eviction!! Evict block 22. Clock arm 2
+Evict 0x1000f000 with 0x10016000
+Eviction!! Evict block 23. Clock arm 3
+Evict 0x10010000 with 0x10017000
+Eviction!! Evict block 24. Clock arm 4
+Evict 0x10011000 with 0x10018000
+Eviction!! Evict block 25. Clock arm 5
+Evict 0x10012000 with 0x10019000
+Eviction!! Evict block 26. Clock arm 6
+Evict 0x10013000 with 0x1001a000
+Eviction!! Evict block 27. Clock arm 7
+Evict 0x10014000 with 0x1001b000
+Eviction!! Evict block 28. Clock arm 0
+Evict 0x10015000 with 0x1001c000
+Eviction!! Evict block 29. Clock arm 2
+Evict 0x10016000 with 0x1001d000
+Eviction!! Evict block 30. Clock arm 3
+Evict 0x10017000 with 0x1001e000
+Eviction!! Evict block 31. Clock arm 4
+Evict 0x10018000 with 0x1001f000
+Eviction!! Evict block 32. Clock arm 6
+Evict 0x1001a000 with 0x10020000
+Eviction!! Evict block 33. Clock arm 7
+Evict 0x1001b000 with 0x10021000
+Eviction!! Evict block 34. Clock arm 0
+Evict 0x1001c000 with 0x10022000
+Eviction!! Evict block 35. Clock arm 2
+Evict 0x1001d000 with 0x10023000
+Eviction!! Evict block 36. Clock arm 3
+Evict 0x1001e000 with 0x10024000
+Eviction!! Evict block 37. Clock arm 4
+Evict 0x1001f000 with 0x10025000
+Eviction!! Evict block 38. Clock arm 6
+Evict 0x10020000 with 0x10026000
+Eviction!! Evict block 39. Clock arm 7
+Evict 0x10021000 with 0x10027000
+Eviction!! Evict block 40. Clock arm 0
+Evict 0x10022000 with 0x10028000
+Eviction!! Evict block 41. Clock arm 2
+Evict 0x10023000 with 0x10029000
+Eviction!! Evict block 42. Clock arm 3
+Evict 0x10024000 with 0x1002a000
+Eviction!! Evict block 43. Clock arm 4
+Evict 0x10025000 with 0x1002b000
+Eviction!! Evict block 44. Clock arm 6
+Evict 0x10026000 with 0x1002c000
+Eviction!! Evict block 45. Clock arm 7
+Evict 0x10027000 with 0x1002d000
+large file is good
+[00001009] exiting gracefully
+
+- 运行 ./grade-lab5.sh，通过测试，结果如下：
+
++ cc kern/init.c
++ ld obj/kern/kernel
++ mk obj/kern/kernel.img
+fs i/o [fs]: OK (1.7s)
+check_bc [fs]: OK (1.7s)
+check_super [fs]: OK (1.7s)
+check_bitmap [fs]: OK (1.7s)
+alloc_block [fs]: OK (1.7s)
+file_open [fs]: OK (1.7s)
+file_get_block [fs]: OK (1.7s)
+file_flush/file_truncate/file rewrite [fs]: OK (1.7s)
+lib/file.c [testfile]: OK (2.1s)
+file_read [testfile]: OK (2.1s)
+file_write [testfile]: OK (2.1s)
+file_read after file_write [testfile]: OK (2.1s)
+open [testfile]: OK (2.1s)
+large file [testfile]: OK (2.1s)
+motd display [writemotd]: OK (1.4s)
+motd change [writemotd]: OK (1.4s)
+spawn via icode [icode]: OK (1.4s)
+Score: 105/105
+
