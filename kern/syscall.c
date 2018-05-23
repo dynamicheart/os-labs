@@ -155,6 +155,9 @@ sys_env_set_trapframe(envid_t envid, struct Trapframe *tf)
 	// address!
 	int res;
 	struct Env *env_store;
+	if ((res = user_mem_check(curenv, tf, sizeof(struct Trapframe), PTE_U)) < 0)
+		return res;
+
 	if ((res = envid2env(envid, &env_store, 1)) < 0)
 		return res;
 	env_store->env_tf = *tf;
