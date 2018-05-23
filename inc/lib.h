@@ -119,7 +119,11 @@ int	pageref(void *addr);
 envid_t	spawn(const char *program, const char **argv);
 envid_t	spawnl(const char *program, const char *arg0, ...);
 
-
+// lab5 challenge eviction policy
+//#define USE_EVICT_POLICY
+#ifdef USE_EVICT_POLICY
+#define NBLOCKCACHE 8
+#endif
 
 /* File open modes */
 #define	O_RDONLY	0x0000		/* open for reading only */
