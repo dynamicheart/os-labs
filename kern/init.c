@@ -3,6 +3,8 @@
 #include <inc/stdio.h>
 #include <inc/string.h>
 #include <inc/assert.h>
+#include <inc/x86.h>
+#include <inc/mmu.h>
 
 #include <kern/monitor.h>
 #include <kern/console.h>
@@ -66,7 +68,6 @@ i386_init(void)
 	cprintf("pading space in the right to number 22: %-8d.\n", 22);
 	cprintf("show me the sign: %+d, %+d\n", 1024, -1024);
 
-
 	// Lab 2 memory management initialization functions
 	mem_init();
 
@@ -87,15 +88,10 @@ i386_init(void)
 
 	// Acquire the big kernel lock before waking up APs
 	// Your code here:
+	lock_kernel();
 
 	// Starting non-boot CPUs
 	boot_aps();
-
-#ifdef USE_TICKET_SPIN_LOCK
-	unlock_kernel();
-	spinlock_test();
-	lock_kernel();
-#endif
 
 	// Should always have idle processes at first.
 	int i;
@@ -115,11 +111,16 @@ i386_init(void)
 	ENV_CREATE(TEST, ENV_TYPE_USER);
 #else
 	// Touch all you want.
-	ENV_CREATE(user_primes, ENV_TYPE_USER);
-	// ENV_CREATE(user_writemotd, ENV_TYPE_USER);
-	// ENV_CREATE(user_testfile, ENV_TYPE_USER);
-	// ENV_CREATE(user_icode, ENV_TYPE_USER);
+	ENV_CREATE(user_writemotd, ENV_TYPE_USER);
+	ENV_CREATE(user_testfile, ENV_TYPE_USER);
+	ENV_CREATE(user_icode, ENV_TYPE_USER);
 #endif // TEST*
+
+#ifdef USE_TICKET_SPIN_LOCK
+	unlock_kernel();
+	spinlock_test();
+	lock_kernel();
+#endif
 
 	// Schedule and run the first user environment!
 	sched_yield();
@@ -161,7 +162,7 @@ boot_aps(void)
 void
 mp_main(void)
 {
-	// We are in high EIP now, safe to switch to kern_pgdir 
+	// We are in high EIP now, safe to switch to kern_pgdir
 	lcr3(PADDR(kern_pgdir));
 	cprintf("SMP: CPU %d starting\n", cpunum());
 
@@ -169,7 +170,6 @@ mp_main(void)
 	env_init_percpu();
 	trap_init_percpu();
 	xchg(&thiscpu->cpu_status, CPU_STARTED); // tell boot_aps() we're up
-
 #ifdef USE_TICKET_SPIN_LOCK
 	spinlock_test();
 #endif
@@ -179,9 +179,8 @@ mp_main(void)
 	// only one CPU can enter the scheduler at a time!
 	//
 	// Your code here:
-
-	// Remove this after you finish Exercise 4
-	for (;;);
+	lock_kernel();
+	sched_yield();
 }
 
 /*

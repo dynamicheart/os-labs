@@ -6,11 +6,14 @@
 #include <inc/memlayout.h>
 #include <inc/assert.h>
 #include <inc/x86.h>
+#include <inc/env.h>
 
 #include <kern/console.h>
 #include <kern/monitor.h>
 #include <kern/kdebug.h>
 #include <kern/trap.h>
+#include <kern/env.h>
+#include <kern/pmap.h>
 
 #define CMDBUF_SIZE	80	// enough for one VGA text line
 
@@ -25,6 +28,14 @@ struct Command {
 static struct Command commands[] = {
 	{ "help", "Display this list of commands", mon_help },
 	{ "kerninfo", "Display information about the kernel", mon_kerninfo },
+	{ "backtrace", "Print a backtrace of the stack", mon_backtrace },
+	{ "time", "Count a program's running time", mon_time },
+	{ "showmappings", "Display physical page mappings", mon_showmappings},
+	{ "setpermission", "Change the permissions of any mapping", mon_setpermission},
+	{ "memdump", "Dump the contents of a range of memory", mon_memdump},
+	{ "c", "Tells GDB to continue execution from the current location", mon_c},
+	{ "si", "Executing the code instruction by instruction", mon_si},
+	{ "x", "Display the memory", mon_x}
 };
 #define NCOMMANDS (sizeof(commands)/sizeof(commands[0]))
 
@@ -62,7 +73,7 @@ mon_kerninfo(int argc, char **argv, struct Trapframe *tf)
 static uint32_t
 read_pretaddr() {
     uint32_t pretaddr;
-    __asm __volatile("leal 4(%%ebp), %0" : "=r" (pretaddr)); 
+    __asm __volatile("leal 4(%%ebp), %0" : "=r" (pretaddr));
     return pretaddr;
 }
 
@@ -70,11 +81,329 @@ int
 mon_backtrace(int argc, char **argv, struct Trapframe *tf)
 {
 	// Your code here.
-    cprintf("Backtrace success\n");
+	uint32_t eip, ebp;
+	uint32_t args[5] = {0};
+	struct Eipdebuginfo info;
+
+	if (tf) {
+		eip = tf->tf_eip;
+		ebp = tf->tf_regs.reg_ebp;
+	} else {
+		eip = read_eip();
+		ebp = read_ebp();
+	}
+
+	cprintf("Stack backtrace:\n");
+
+	while (ebp != 0) {
+		for(uint32_t i = 0; i < 5; i++) {
+			args[i] = *((uint32_t *)(ebp + 8 + 4 * i));
+		}
+		cprintf("  eip %08x ebp %08x args %08x %08x %08x %08x %08x\n", eip, ebp, args[0], args[1], args[2], args[3], args[4]);
+		if (debuginfo_eip(eip, &info) == 0) {
+			cprintf("  %s:%d: ", info.eip_file, info.eip_line);
+			for(int i = 0; i < info.eip_fn_namelen; i++)
+				cprintf("%c", info.eip_fn_name[i]);
+			cprintf("+%d\n", eip - info.eip_fn_addr);
+		}
+
+		ebp = *((uint32_t *)ebp);
+		eip = *((uint32_t *)(ebp + 4));
+	}
+
 	return 0;
 }
 
+int
+mon_time(int argc, char **argv, struct Trapframe *tf)
+{
+	if (argc < 2) {
+		cprintf("Usage: time [COMMAND]\n");
+		return 0;
+	}
 
+	uint32_t lo, hi;
+	uint64_t start = 0, end = 0;
+	for (int i = 0; i < NCOMMANDS; i++) {
+		if (strcmp(argv[1], commands[i].name) == 0 && strcmp(argv[1], "time") != 0){
+			__asm __volatile("rdtsc":"=a"(lo),"=d"(hi));
+			start = (uint64_t)hi << 32 | lo;
+			commands[i].func(argc - 1, argv + 1, tf);
+			__asm __volatile("rdtsc":"=a"(lo),"=d"(hi));
+			end = (uint64_t)hi << 32 | lo;
+
+			cprintf("%s cycles: %d\n", commands[i].name, end - start);
+			return 0;
+		} else if(strcmp(commands[i].name, "time") == 0 && strcmp(argv[1], "time") == 0){
+			// Multiple time commands act like one time command
+			return commands[i].func(argc - 1, argv + 1, tf);
+		}
+	}
+
+	cprintf("Unknown command:'%s'\n\n", argv[1]);
+	return 0;
+}
+
+int
+mon_showmappings(int argc, char **argv, struct Trapframe *tf)
+{
+	if (argc != 3) {
+		cprintf("Usage: showmappings [LOW_VIRTUAL_ADDRESS] [HIGH_VIRTUAL_ADDRESS]\n");
+		return 0;
+	}
+
+	uint32_t low_vaddress, high_vaddress;
+	char *end1 = NULL, *end2 = NULL;
+	pte_t *pte;
+
+	// May be overflow here
+	low_vaddress = (uint32_t)strtol(argv[1], &end1, 0);
+	high_vaddress = (uint32_t)strtol(argv[2], &end2, 0);
+
+	if (end1 != argv[1] + strlen(argv[1]) || end2 != argv[2] + strlen(argv[2])) {
+		cprintf("Invalid virtual address\n");
+		return 0;
+	}
+
+	if (low_vaddress > high_vaddress) {
+		cprintf("Invalid virtual address ranges\n");
+		return 0;
+	}
+
+	low_vaddress = ROUNDDOWN(low_vaddress, PGSIZE); 
+	high_vaddress = ROUNDDOWN(high_vaddress, PGSIZE);
+
+	while (1){
+		pte = pgdir_walk(kern_pgdir, (void *)low_vaddress, 0);
+		if (pte && (*pte & PTE_P))
+			cprintf("0x%08x ---> 0x%08x   %c%c%c%c%c%c%c%c%c\n",
+				low_vaddress,
+				*pte & PTE_PS ? (uint32_t)(*pte & (~0x3FF)) : (uint32_t)(*pte & (~0x2FFFFF)),
+				*pte & PTE_P ? 'P' : '-',
+				*pte & PTE_W ? 'W' : '-',
+				*pte & PTE_U ? 'U' : '-',
+				*pte & PTE_PWT ? 'T' : '-',
+				*pte & PTE_PCD ? 'C' : '-',
+				*pte & PTE_A ? 'A' : '-',
+				*pte & PTE_D ? 'D' : '-',
+				*pte & PTE_PS ? 'S' : '-',
+				*pte & PTE_G ? 'G' : '-'
+				);
+
+		// Large page
+		if (pte && (*pte & (PTE_P | PTE_PS))) {
+			if (low_vaddress == 0xFFC00000)
+				break;
+			low_vaddress += PTSIZE;
+		} else {
+			if (low_vaddress == 0xFFFFFC00)
+				break;
+			low_vaddress += PGSIZE;
+		}
+
+		if (low_vaddress > high_vaddress)
+			break;
+	}
+
+	return 0;
+}
+
+int
+mon_setpermission(int argc, char **argv, struct Trapframe *tf)
+{
+	if (argc != 3) {
+		cprintf("Usage: setpermission [VIRTUAL_ADDRESS] [PERMISSIONS]\n");
+		return 0;
+	}
+
+	char *end = NULL;
+	uint32_t vaddress, permission;
+	pte_t *pte;
+
+	// May be overflow here
+	vaddress = ROUNDDOWN((uint32_t) strtol(argv[1], &end, 0), PGSIZE);
+	permission = ((uint32_t) strtol(argv[1], &end, 0)) & 0x1FF;
+
+	pte = pgdir_walk(kern_pgdir, (void *)vaddress, 0);
+
+	if (pte && (*pte & PTE_P)) {
+		cprintf("BEFORE: 0x%08x ---> 0x%08x  %c%c%c%c%c%c%c%c%c\n",
+				vaddress, 
+				(uint32_t)(*pte & (~0x3FF)),
+				*pte & PTE_P ? 'P' : '-',
+				*pte & PTE_W ? 'W' : '-',
+				*pte & PTE_U ? 'U' : '-',
+				*pte & PTE_PWT ? 'T' : '-',
+				*pte & PTE_PCD ? 'C' : '-',
+				*pte & PTE_A ? 'A' : '-',
+				*pte & PTE_D ? 'D' : '-',
+				*pte & PTE_PS ? 'S' : '-',
+				*pte & PTE_G ? 'G' : '-'
+				);
+
+		*pte = *pte & (permission | ~0x1FF);
+
+		cprintf("AFTER: 0x%08x ---> 0x%08x  %c%c%c%c%c%c%c%c%c\n",
+				vaddress, 
+				(uint32_t)(*pte & (~0x3FF)),
+				*pte & PTE_P ? 'P' : '-',
+				*pte & PTE_W ? 'W' : '-',
+				*pte & PTE_U ? 'U' : '-',
+				*pte & PTE_PWT ? 'T' : '-',
+				*pte & PTE_PCD ? 'C' : '-',
+				*pte & PTE_A ? 'A' : '-',
+				*pte & PTE_D ? 'D' : '-',
+				*pte & PTE_PS ? 'S' : '-',
+				*pte & PTE_G ? 'G' : '-'
+				);
+	}
+	else 
+		cprintf("Page not existed\n");
+
+	return 0;
+}
+
+int
+mon_memdump(int argc, char **argv, struct Trapframe *tf)
+{
+	if (argc != 4) {
+		cprintf("Usage: memdump [-v/p] [low_address] [high_address]\n");
+		return 0;
+	}
+
+	// Is the address virtual?
+	int vtype = 1;
+
+	if (strcmp(argv[1], "-v") == 0)
+		vtype = 1;
+	else if (strcmp(argv[1], "-p") == 0)
+		vtype = 0;
+	else {
+		cprintf("Usage: memdump [-v/p] [low_address] [high_address]\n");
+		return 0;
+	}
+
+	uint32_t low_vaddress, high_vaddress, next_page_addr;
+	char *end2 = NULL, *end3 = NULL;
+	pte_t *pte;
+
+	// May be overflow here
+	low_vaddress = (uint32_t)strtol(argv[2], &end2, 0);
+	high_vaddress = (uint32_t)strtol(argv[3], &end3, 0);
+
+	if (!vtype) {
+		if (high_vaddress >= 0xFFFFFFFF - KERNBASE) {
+			cprintf("Invalid physical address\n");
+			return 0;
+		}
+
+		low_vaddress += KERNBASE;
+		high_vaddress += KERNBASE;
+	}
+
+	if (end2 != argv[2] + strlen(argv[2]) || end3 != argv[3] + strlen(argv[3])) {
+		cprintf("Invalid virtual address\n");
+		return 0;
+	}
+
+	if (low_vaddress > high_vaddress) {
+		cprintf("Invalid virtual address ranges\n");
+		return 0;
+	}
+
+	while (low_vaddress <= high_vaddress){
+		pte = pgdir_walk(kern_pgdir, (void *)low_vaddress, 0);
+		if (pte && (*pte & PTE_P) && (*pte & PTE_PS)) {
+			next_page_addr = ROUNDUP(low_vaddress + 1, PTSIZE);
+			while (low_vaddress < next_page_addr && low_vaddress <= high_vaddress){
+				// Little endian
+				cprintf("%08x: %02x %02x %02x %02x\n",
+					low_vaddress,
+					*((unsigned char *)low_vaddress),
+					*(((unsigned char *)low_vaddress) + 1),
+					*(((unsigned char *)low_vaddress) + 2),
+					*(((unsigned char *)low_vaddress) + 3)
+					);
+				low_vaddress++;
+			}
+			low_vaddress = next_page_addr;
+		} else if (pte && (*pte & PTE_P)) {
+			next_page_addr = ROUNDUP(low_vaddress + 1, PGSIZE);
+			while (low_vaddress < next_page_addr && low_vaddress <= high_vaddress) {
+				// Little endian
+				cprintf("%08x: %02x %02x %02x %02x\n",
+					low_vaddress,
+					*((unsigned char *)low_vaddress),
+					*(((unsigned char *)low_vaddress) + 1),
+					*(((unsigned char *)low_vaddress) + 2),
+					*(((unsigned char *)low_vaddress) + 3)
+					);
+				low_vaddress++;
+			}
+			low_vaddress = next_page_addr;
+		} else{
+			next_page_addr = ROUNDUP(low_vaddress + 1, PGSIZE);
+			low_vaddress = next_page_addr;
+		}
+	}
+
+	return 0;
+}
+
+// GDB-style debugging commands
+int
+mon_c(int argc, char **argv, struct Trapframe *tf)
+{
+	if (tf) {
+		// Clear tf clear
+		tf->tf_eflags &= (~FL_TF);
+		env_run(curenv);
+		// No return
+		assert(0);
+	} else {
+		cprintf("No executable file\n");
+	}
+	return 0;
+}
+
+int
+mon_si(int argc, char **argv, struct Trapframe *tf)
+{
+	if (tf) {
+		// Set tf bit
+		tf->tf_eflags |= FL_TF;
+		env_run(curenv);
+		// No return
+		assert(0);
+	} else {
+		cprintf("No executable file\n");
+	}
+	return 0;
+}
+
+int
+mon_x(int argc, char **argv, struct Trapframe *tf)
+{
+	if (tf) {
+		if (argc < 2) {
+			cprintf("Usage: x [ADDRESS IN HEX]\n");
+			return 0;
+		}
+
+		int *address = (int *)strtol(argv[1], NULL, 0);
+		pte_t *pte = pgdir_walk(curenv->env_pgdir, (void *)address, 0);
+
+		if (pte != NULL && (*pte & PTE_P)) {
+			cprintf("%d\n", *address);
+		} else {
+			cprintf("Unmapped address\n");
+		}
+
+	} else {
+		cprintf("No executable file\n");
+	}
+	return 0;
+}
 
 /***** Kernel monitor command interpreter *****/
 
@@ -124,6 +453,22 @@ void
 monitor(struct Trapframe *tf)
 {
 	char *buf;
+
+	// Print the result of si command
+	if (tf && tf->tf_trapno == T_DEBUG) {
+		struct Eipdebuginfo info;
+
+		if (debuginfo_eip(tf->tf_eip, &info) == 0) {
+			// First line
+			cprintf("tf_eip=%08x\n", tf->tf_eip);
+			// Second line
+			cprintf("%s:%d: ", info.eip_file, info.eip_line);
+			for(int i = 0; i < info.eip_fn_namelen; i++){
+				cprintf("%c", info.eip_fn_name[i]);
+				cprintf("+%d\n", tf->tf_eip - info.eip_fn_addr);
+			}
+		}
+	}
 
 	cprintf("Welcome to the JOS kernel monitor!\n");
 	cprintf("Type 'help' for a list of commands.\n");

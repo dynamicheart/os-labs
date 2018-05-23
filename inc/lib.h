@@ -34,6 +34,12 @@ extern const volatile struct Env *thisenv;
 extern const volatile struct Env envs[NENV];
 extern const volatile struct Page pages[];
 
+// sfork
+//#define ENABLE_SFORK
+#ifdef ENABLE_SFORK
+#define curenv (&envs[ENVX(sys_getenvid())])
+#endif
+
 // exit.c
 void	exit(void);
 
@@ -134,7 +140,11 @@ int     nsipc_socket(int domain, int type, int protocol);
 envid_t	spawn(const char *program, const char **argv);
 envid_t	spawnl(const char *program, const char *arg0, ...);
 
-
+// lab5 challenge eviction policy
+//#define USE_EVICT_POLICY
+#ifdef USE_EVICT_POLICY
+#define NBLOCKCACHE 8
+#endif
 
 /* File open modes */
 #define	O_RDONLY	0x0000		/* open for reading only */

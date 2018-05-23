@@ -17,7 +17,7 @@ struct spinlock {
 #ifndef USE_TICKET_SPIN_LOCK
 	unsigned locked;   // Is the lock held?
 #else
-	unsigned own;
+	volatile unsigned own;
 	unsigned next;
 #endif
 
