@@ -13,6 +13,7 @@
 #include <kern/sched.h>
 #include <kern/time.h>
 #include <kern/spinlock.h>
+#include <kern/e1000.h>
 
 // Print a string to the system console.
 // The string is exactly 'len' characters long.
@@ -460,7 +461,14 @@ static int
 sys_time_msec(void)
 {
 	// LAB 6: Your code here.
-	panic("sys_time_msec not implemented");
+	return time_msec();
+}
+
+static int
+sys_net_try_transmit(char* data, uint32_t len)
+{
+	user_mem_assert(curenv, data, len, 0);
+	return e1000_transmit(data, len);
 }
 
 
@@ -518,9 +526,6 @@ syscall(uint32_t syscallno, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, 
 			asm volatile("movl 36(%%ebp), %0":"=r"(curenv->env_tf.tf_esp):);
 			sys_yield();
 			assert(0);
-		case SYS_sbrk:
-			res = sys_sbrk(a1);
-			break;
 		case SYS_ipc_try_send:
 			res = sys_ipc_try_send((envid_t)a1, (uint32_t)a2, (void *)a3, (unsigned)a4);
 			break;
@@ -529,6 +534,15 @@ syscall(uint32_t syscallno, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, 
 			asm volatile("movl 36(%%ebp), %0":"=r"(curenv->env_tf.tf_esp):);
 			res = sys_ipc_recv((void *)a1);
 			assert(0);
+		case SYS_sbrk:
+			res = sys_sbrk(a1);
+			break;
+		case SYS_time_msec:
+			res = sys_time_msec();
+			break;
+		case SYS_net_try_transmit:
+			res = sys_net_try_transmit((void *)a1, (uint32_t)a2);
+			break;
 		default:
 			res = -E_INVAL;
 	}
