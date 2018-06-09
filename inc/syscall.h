@@ -25,6 +25,7 @@ enum {
 	SYS_time_msec,
 
 	SYS_net_try_transmit,
+	SYS_net_recv,
 	NSYSCALLS
 };
 

@@ -28,6 +28,7 @@ enum {
 
 	// Net error codes
 	E_TRANSMIT_QUEUE_FULL = 16,
+	E_NO_RECV_PACKET = 17,
 
 	MAXERROR
 };

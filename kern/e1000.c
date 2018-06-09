@@ -1,13 +1,19 @@
 #include <inc/mmu.h>
 #include <inc/string.h>
 #include <inc/error.h>
+
 #include <kern/e1000.h>
 #include <kern/pmap.h>
+#include <kern/env.h>
 
 // LAB 6: Your driver code here
 volatile uint32_t *bar0;
+
+struct e1000_rx_desc rx_desc_ring[RX_DESC_NUM]__attribute__((aligned(16)));
+char rx_packet_buffers[RX_DESC_NUM][RX_PACKET_SIZE];
+
 struct e1000_tx_desc tx_desc_ring[TX_DESC_NUM] __attribute__((aligned(16)));
-char tx_packet_buffers[TX_DESC_NUM][ETHERNET_PACKET_SIZE]; 
+char tx_packet_buffers[TX_DESC_NUM][TX_PACKET_SIZE];
 
 static int mmio_map(void *vaddr, uint32_t paddr, uint32_t size, uint32_t perm) {
 	void *last;
@@ -38,40 +44,81 @@ static int e1000_setup_tx_resources() {
 	for (int i = 0; i < TX_DESC_NUM; i++) {
 		tx_desc_ring[i].buffer_addr = PADDR(tx_packet_buffers[i]);
 		tx_desc_ring[i].upper.data |= E1000_TXD_STAT_DD;
+		tx_desc_ring[i].lower.data |= E1000_TXD_CMD_RS | E1000_TXD_CMD_EOP;
 	}
 
 	/* --- Transmit Initialization Begin --- */
-
-	// Program the Transmit Descriptor Base Address (TDBAL/TDBAH) register(s) with
-	// the address of the region.
 	bar0[E1000_TDBAL] = PADDR(tx_desc_ring);
 	bar0[E1000_TDBAH] = 0;
 
-	// Set the Transmit Descriptor Length (TDLEN) register to the size (in bytes)
-	// of the descriptor ring. This register must be 128-byte aligned.
 	bar0[E1000_TDLEN] = sizeof(tx_desc_ring);
 
-	// The Transmit Descriptor Head and Tail (TDH/TDT) registers are initialized
-	// (by hardware) to 0b after a power-on or a software initiated Ethernet controller reset.
-	// Software should write 0b to both these registers to ensure this.
 	bar0[E1000_TDH] = 0;
 	bar0[E1000_TDT] = 0;
 
-	// Initialize the Transmit Control Register (TCTL)
 	bar0[E1000_TCTL] |= E1000_TCTL_EN;
 	bar0[E1000_TCTL] |= E1000_TCTL_PSP;
-	bar0[E1000_TCTL] |= E1000_TCTL_CT & (0x10 << E1000_TCTL_CT_OFFSET);
-	bar0[E1000_TCTL] |= E1000_TCTL_COLD & (0x40 << E1000_TCTL_COLD_OFFSET); // For the TCTL.COLD, you can assume full-duplex operation.
+	bar0[E1000_TCTL] |= E1000_TCTL_CT & (0x10 << E1000_TCTL_CT_SHIFT);
+	bar0[E1000_TCTL] |= E1000_TCTL_COLD & (0x40 << E1000_TCTL_COLD_SHIFT); // For the TCTL.COLD, you can assume full-duplex operation.
 
-	// Program the Transmit IPG (TIPG) register to get the minimum legal Inter Packet Gap.
 	// For TIPG, refer to the default values described in table 13-77 of section 13.4.34 for the IEEE 802.3 standard IPG.
 	bar0[E1000_TIPG] = 0; // Clean bit
-	bar0[E1000_TIPG] |= 10 << E1000_TIPG_IPGT_OFFSET;
-	bar0[E1000_TIPG] |= 4 << E1000_TIPG_IPGR1_OFFSET;
-	bar0[E1000_TIPG] |= 6 << E1000_TIPG_IPGR2_OFFSET;
-
+	bar0[E1000_TIPG] |= 10 << E1000_TIPG_IPGT_SHIFT;
+	bar0[E1000_TIPG] |= 4 << E1000_TIPG_IPGT1_SHIFT;
+	bar0[E1000_TIPG] |= 6 << E1000_TIPG_IPGT2_SHIFT;
 	/* --- Transmit Initialization End --- */
 
+	return 0;
+}
+
+static int e1000_setup_rx_resources() {
+	memset(rx_desc_ring, 0, sizeof(rx_desc_ring));
+	memset(rx_packet_buffers, 0, sizeof(rx_packet_buffers));
+	for (int i = 0; i < RX_DESC_NUM; i++) {
+		rx_desc_ring[i].buffer_addr = PADDR(rx_packet_buffers[i]);
+		rx_desc_ring[i].status &= ~E1000_RXD_STAT_DD;
+	}
+
+	/* --- Receive Initialization Begin --- */
+	// Hard-code QEMU's default MAC address of 52:54:00:12:34:56
+	bar0[E1000_RAL] = 0x12005452;
+	bar0[E1000_RAH] = 0x00005634 | E1000_RAH_AV; // Don't forget to set the "Address Valid" bit in RAH.
+
+	// You don't have to support "long packets" or multicast.
+	// For now, don't configure the card to use interrupts.
+
+	bar0[E1000_RDBAL] = PADDR(rx_desc_ring);
+	bar0[E1000_RDBAH] = 0;
+
+	bar0[E1000_RDLEN] = sizeof(rx_desc_ring);
+
+	bar0[E1000_RDH] = 0;
+	bar0[E1000_RDT] = RX_DESC_NUM - 1;
+
+	bar0[E1000_RCTL] &= ~E1000_RCTL_LPE;
+
+	bar0[E1000_RCTL] &= ~E1000_RCTL_LBM_MASK;
+	bar0[E1000_RCTL] |= E1000_RCTL_LBM_NO;
+
+	bar0[E1000_RCTL] &= ~E1000_RCTL_MPE;
+
+	bar0[E1000_RCTL] &= ~E1000_RCTL_RDMTS_MASK;
+	bar0[E1000_RCTL] |= E1000_RCTL_RDMTS_HALF;
+
+	bar0[E1000_RCTL] |= E1000_RCTL_BAM;
+
+	bar0[E1000_RCTL] &= ~E1000_RCTL_BSEX;
+	bar0[E1000_RCTL] &= ~E1000_RCTL_SZ_MASK;
+	bar0[E1000_RCTL] |= E1000_RCTL_SZ_2048;
+
+	bar0[E1000_RCTL] |= E1000_RCTL_SECRC;
+
+	// It is best to leave the Ethernet controller receive logic disabled (RCTL.EN = 0b)
+	// until after the receive descriptor ring has been initialized and software is ready
+	// to process received packets.
+	bar0[E1000_RCTL] |= E1000_RCTL_EN;
+
+	/* --- Receive Initialization End --- */
 	return 0;
 }
 
@@ -96,16 +143,15 @@ int e1000_82540em_attach(struct pci_func *pcif) {
 	if ((res = e1000_setup_tx_resources()) < 0)
 		panic("e1000_82540em_attach: setup tx failed");
 
+	if ((res = e1000_setup_rx_resources()) < 0)
+		panic("e1000_82540em_attach: setup rx failed");
 
 	return 0;
 }
 
-int e1000_transmit(char *data, uint32_t len) {
+int e1000_transmit(void *data, uint32_t len) {
 	// Note that TDT is an index into the transmit descriptor array, not a byte offset
 	uint32_t tdt;
-
-	if (data == NULL || len > ETHERNET_PACKET_SIZE)
-		return -E_INVAL;
 
 	// Checking if the next descriptor is free
 	tdt = bar0[E1000_TDT];
@@ -115,14 +161,37 @@ int e1000_transmit(char *data, uint32_t len) {
 	// Copy the packet data into the next descriptor
 	memset(tx_packet_buffers[tdt], 0, sizeof(tx_packet_buffers[tdt]));
 	memmove(tx_packet_buffers[tdt], data, len);
-	
+
+	// RS bit and EOP bit are set in initialization
 	tx_desc_ring[tdt].lower.flags.length = len;
-	tx_desc_ring[tdt].lower.data |= E1000_TXD_CMD_RS;
-	tx_desc_ring[tdt].lower.data |= E1000_TXD_CMD_EOP;
 	tx_desc_ring[tdt].upper.data &= ~E1000_TXD_STAT_DD;
 
 	// Update TDT
 	bar0[E1000_TDT] = (tdt + 1) % TX_DESC_NUM;
 
 	return 0;
+}
+
+int e1000_receive(void *data_store) {
+	int res;
+	uint32_t new_rdt;
+	uint16_t len;
+
+	new_rdt = (bar0[E1000_RDT] + 1) % RX_DESC_NUM;
+	if (!(rx_desc_ring[new_rdt].status & E1000_RXD_STAT_DD))
+		return -E_NO_RECV_PACKET;
+
+	assert(rx_desc_ring[new_rdt].status & E1000_RXD_STAT_EOP);
+
+	len = rx_desc_ring[new_rdt].length;
+	assert(len > 0 && len <= RX_PACKET_SIZE);
+
+	memmove(data_store, rx_packet_buffers[new_rdt], len);
+
+	rx_desc_ring[new_rdt].status &= ~E1000_RXD_STAT_DD;
+	rx_desc_ring[new_rdt].status &= ~E1000_RXD_STAT_EOP;
+
+	bar0[E1000_RDT] = new_rdt;
+
+	return len;
 }

@@ -171,3 +171,8 @@ sys_net_try_transmit(void* data, uint32_t len)
 	return syscall(SYS_net_try_transmit, 0, (uint32_t)data, len, 0, 0, 0);
 }
 
+int
+sys_net_recv(void *data_store)
+{
+	return syscall(SYS_net_recv, 0, (uint32_t)data_store, 0, 0, 0, 0);
+}

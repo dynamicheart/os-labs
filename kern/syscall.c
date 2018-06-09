@@ -465,12 +465,20 @@ sys_time_msec(void)
 }
 
 static int
-sys_net_try_transmit(char* data, uint32_t len)
+sys_net_try_transmit(void* data, uint32_t len)
 {
+	if (len > TX_PACKET_SIZE || len == 0)
+		return -E_INVAL;
 	user_mem_assert(curenv, data, len, 0);
 	return e1000_transmit(data, len);
 }
 
+static int
+sys_net_recv(void* data_store)
+{
+	user_mem_assert(curenv, data_store, RX_PACKET_SIZE, PTE_W);
+	return e1000_receive(data_store);
+}
 
 // Dispatches to the correct kernel function, passing the arguments.
 int32_t
@@ -542,6 +550,9 @@ syscall(uint32_t syscallno, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, 
 			break;
 		case SYS_net_try_transmit:
 			res = sys_net_try_transmit((void *)a1, (uint32_t)a2);
+			break;
+		case SYS_net_recv:
+			res = sys_net_recv((void *)a1);
 			break;
 		default:
 			res = -E_INVAL;

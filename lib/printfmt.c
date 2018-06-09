@@ -35,6 +35,8 @@ static const char * const error_string[MAXERROR] =
 	[E_FILE_EXISTS]	= "file already exists",
 	[E_NOT_EXEC]	= "file is not a valid executable",
 	[E_NOT_SUPP]	= "operation not supported",
+	[E_TRANSMIT_QUEUE_FULL] = "net transmit queue full",
+	[E_NO_RECV_PACKET] = "no rx packet",
 };
 
 //打印简单数字

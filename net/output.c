@@ -1,6 +1,5 @@
 #include "ns.h"
 
-#include <inc/lib.h>
 #include <inc/error.h>
 
 extern union Nsipc nsipcbuf;
@@ -29,7 +28,7 @@ output(envid_t ns_envid)
         }
 
         while ((res = sys_net_try_transmit(nsipcbuf.pkt.jp_data, nsipcbuf.pkt.jp_len)) < 0){
-            if (res != E_TRANSMIT_QUEUE_FULL)
+            if (res != -E_TRANSMIT_QUEUE_FULL)
                 panic("sys_net_try_transmit: %e", res);
         }
     }
