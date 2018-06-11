@@ -176,3 +176,9 @@ sys_net_recv(void *data_store)
 {
 	return syscall(SYS_net_recv, 0, (uint32_t)data_store, 0, 0, 0, 0);
 }
+
+int
+sys_net_getmac(void *mac_store)
+{
+	return syscall(SYS_net_getmac, 0, (uint32_t)mac_store, 0, 0, 0, 0);
+}

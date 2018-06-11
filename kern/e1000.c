@@ -72,6 +72,8 @@ static int e1000_setup_tx_resources() {
 }
 
 static int e1000_setup_rx_resources() {
+	int r;
+
 	memset(rx_desc_ring, 0, sizeof(rx_desc_ring));
 	memset(rx_packet_buffers, 0, sizeof(rx_packet_buffers));
 	for (int i = 0; i < RX_DESC_NUM; i++) {
@@ -80,9 +82,22 @@ static int e1000_setup_rx_resources() {
 	}
 
 	/* --- Receive Initialization Begin --- */
-	// Hard-code QEMU's default MAC address of 52:54:00:12:34:56
-	bar0[E1000_RAL] = 0x12005452;
-	bar0[E1000_RAH] = 0x00005634 | E1000_RAH_AV; // Don't forget to set the "Address Valid" bit in RAH.
+	char mac_store[MAC_SIZE];
+	if ((r = e1000_getmac(mac_store)) < 0)
+		return r;
+
+	uint32_t ral = 0;
+	ral |= mac_store[0];
+	ral |= ((uint32_t)(mac_store[1])) << 8;
+	ral |= ((uint32_t)(mac_store[2])) << 16;
+	ral |= ((uint32_t)(mac_store[3])) << 24;
+
+	uint32_t rah = 0;
+	rah |= mac_store[4];
+	rah |= ((uint32_t)(mac_store[5])) << 8;
+
+	bar0[E1000_RAL] = ral;
+	bar0[E1000_RAH] = rah | E1000_RAH_AV; // Don't forget to set the "Address Valid" bit in RAH.
 
 	// You don't have to support "long packets" or multicast.
 	// For now, don't configure the card to use interrupts.
@@ -120,6 +135,16 @@ static int e1000_setup_rx_resources() {
 
 	/* --- Receive Initialization End --- */
 	return 0;
+}
+
+static uint16_t e1000_read_eeprom(uint8_t addr) {
+	bar0[E1000_EERD] = 0;
+	bar0[E1000_EERD] |= addr << E1000_EEPROM_RW_ADDR_SHIFT;
+	bar0[E1000_EERD] |= E1000_EEPROM_RW_REG_START;
+
+	while (!(bar0[E1000_EERD] & E1000_EEPROM_RW_REG_DONE));
+
+	return bar0[E1000_EERD] >> E1000_EEPROM_RW_REG_DATA;
 }
 
 int e1000_82540em_attach(struct pci_func *pcif) {
@@ -194,4 +219,33 @@ int e1000_receive(void *data_store) {
 	bar0[E1000_RDT] = new_rdt;
 
 	return len;
+}
+
+static char *mac = NULL;
+static char mac_array[MAC_SIZE];
+int e1000_getmac(void *mac_store) {
+	int r;
+
+	if (mac == NULL) {
+		mac = mac_array;
+
+		uint16_t mac_byte_01 = e1000_read_eeprom(0x00);
+		uint16_t mac_byte_23 = e1000_read_eeprom(0x01);
+		uint16_t mac_byte_45 = e1000_read_eeprom(0x02);
+
+		mac[0] = mac_byte_01 & 0xff;
+		mac[1] = (mac_byte_01 >> 8) & 0xff;
+
+		mac[2] = mac_byte_23 & 0xff;
+		mac[3] = (mac_byte_23 >> 8) & 0xff;
+
+		mac[4] = mac_byte_45 & 0xff;
+		mac[5] = (mac_byte_45 >> 8) & 0xff;
+
+		cprintf("Reading mac from EEPROM:%02x:%02x:%02x:%02x:%02x:%02x\n", 
+			mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+	}
+
+	memmove(mac_store, mac, MAC_SIZE);
+	return 0;
 }

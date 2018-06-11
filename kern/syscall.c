@@ -480,6 +480,13 @@ sys_net_recv(void* data_store)
 	return e1000_receive(data_store);
 }
 
+static int
+sys_net_getmac(void *mac_store)
+{
+	user_mem_assert(curenv, mac_store, MAC_SIZE, PTE_W);
+	return e1000_getmac(mac_store);
+}
+
 // Dispatches to the correct kernel function, passing the arguments.
 int32_t
 syscall(uint32_t syscallno, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, uint32_t a5)
@@ -553,6 +560,9 @@ syscall(uint32_t syscallno, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, 
 			break;
 		case SYS_net_recv:
 			res = sys_net_recv((void *)a1);
+			break;
+		case SYS_net_getmac:
+			res = sys_net_getmac((void *)a1);
 			break;
 		default:
 			res = -E_INVAL;

@@ -3,6 +3,8 @@
 
 #include <kern/pci.h>
 
+#define MAC_SIZE 6
+
 #define RX_DESC_NUM 128
 #define RX_PACKET_SIZE 2048
 #define TX_DESC_NUM 64
@@ -25,6 +27,7 @@
  * A - register array
  */
 #define E1000_STATUS   (0x00008/4)  /* Device Status - RO */
+#define E1000_EERD     (0x00014/4)  /* EEPROM Read - RW */
 #define E1000_RCTL     (0x00100/4)  /* RX Control - RW */
 #define E1000_TCTL     (0x00400/4)  /* TX Control - RW */
 #define E1000_TIPG     (0x00410/4)  /* TX Inter-packet gap -RW */
@@ -86,6 +89,11 @@
 /* Receive Address */
 #define E1000_RAH_AV  0x80000000        /* Receive descriptor valid */
 
+#define E1000_EEPROM_RW_REG_DATA   16   /* Offset to data in EEPROM read/write registers */
+#define E1000_EEPROM_RW_REG_DONE   0x10 /* Offset to READ/WRITE done bit */
+#define E1000_EEPROM_RW_REG_START  1    /* First bit for telling part to start operation */
+#define E1000_EEPROM_RW_ADDR_SHIFT 8    /* Shift to the address bits */
+
 /* Transmit Descriptor */
 struct e1000_tx_desc {
 	uint64_t buffer_addr;       /* Address of the descriptor's data buffer */
@@ -120,5 +128,6 @@ struct e1000_rx_desc {
 int e1000_82540em_attach(struct pci_func *pcif);
 int e1000_transmit(void *data, uint32_t len);
 int e1000_receive(void *data_store);
+int e1000_getmac(void *mac_store);
 
 #endif	// JOS_KERN_E1000_H
