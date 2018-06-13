@@ -9,9 +9,11 @@
 // LAB 6: Your driver code here
 volatile uint32_t *bar0;
 
+// Warning: still cache-enable
 struct e1000_rx_desc rx_desc_ring[RX_DESC_NUM]__attribute__((aligned(16)));
 char rx_packet_buffers[RX_DESC_NUM][RX_PACKET_SIZE];
 
+// Warning: still cache-enable
 struct e1000_tx_desc tx_desc_ring[TX_DESC_NUM] __attribute__((aligned(16)));
 char tx_packet_buffers[TX_DESC_NUM][TX_PACKET_SIZE];
 
@@ -25,7 +27,7 @@ static int mmio_map(void *vaddr, uint32_t paddr, uint32_t size, uint32_t perm) {
 		if((pte = pgdir_walk(kern_pgdir, vaddr, 1)) == NULL)
 			return -E_NO_MEM;
 		if((*pte & PTE_P))
-			return -E_INVAL;
+			tlb_invalidate(kern_pgdir, vaddr);
 		*pte = paddr | perm;
 
 		if(vaddr == last)
