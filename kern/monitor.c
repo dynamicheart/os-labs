@@ -242,6 +242,7 @@ mon_setpermission(int argc, char **argv, struct Trapframe *tf)
 				);
 
 		*pte = *pte & (permission | ~0x1FF);
+		tlb_invalidate(kern_pgdir, (void *)vaddress);
 
 		cprintf("AFTER: 0x%08x ---> 0x%08x  %c%c%c%c%c%c%c%c%c\n",
 				vaddress, 
