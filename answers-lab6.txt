@@ -1,0 +1,53 @@
+# JOS LAB6 ANSWERS
+杨健邦 515030910223
+
+此文档的内容分两部分，第一部分是问题的解答，第二部分是讲challenge的实现。至于lab的各个
+Exercise实现的方法描述，在另外一个文档里面。
+
+## 第一部分 -- 问题的解答
+1. How did you structure your transmit implementation? In particular, what do 
+you do if the transmit ring is full?
+
+- 通过设置全局变量的方式，使得descriptor ring buffer所在的物理页在链接和加载程序的时候被自
+动分配在连续的物理地址空间，在设置全局变量的时候，加上__attribute__((aligned(16)))保留字来
+使得链接器会将这个buffer放到16字节对齐的地址。同时为了防止出现cache与memory之间存在不一致问
+题，在attach的时候，将descriptor ring buffer以及packet data buffer所在的物理页全部映射
+成PTE_PCD和PTE_PWT的形式(禁用缓存以及写穿)。
+
+- 在inc/error.h中新增加一个错误码，叫作E_TRANSMIT_QUEUE_FULL，当ring buffer满了之后，
+直接返回这个错误码，让调用者自行决定如何处理，通常的处理方式是是不断尝试发送，直到发送成功为止。
+
+
+2. How did you structure your receive implementation? In particular, what do 
+you do if the receive queue is empty and a user environment requests the next 
+incoming packet?
+- 与上面transmit的所使用的方法一致，这里就不再重复说明。
+
+- 在inc/error.h中新增加一个错误码，叫作E_NO_RECV_PACKET，当没有要接收的包，直接返回这个错
+误码，让调用者自行决定如何处理，通常的处理方式是调用sys_sched，让CPU可以先处理一些其它事情，
+当调度回来的时候，再次尝试接收。
+
+
+3. What does the web page served by JOS's web server say?
+
+This file came from JOS.
+Cheesy web page! 
+
+注：这个是web server的/index.html所显示的内容。
+
+
+4. How long approximately did it take you to do this lab?
+
+- 看手册和写代码大概花了三到四天。
+- 写文档花了两三个小时。
+
+## 第二部分 -- challenge的实现
+本次lab，我选择了Load MAC address out of the EEPROM这个challenge。
+
+新增加一个系统调用来让用户态程序来获取MAC地址，这个新的系统调用的名称叫作sys_net_getmac。
+这个系统调用函数首先检查用户传入的指针，然后简单地调用e1000提供的函数e1000_getmac。
+e1000_getmac是一个单例模式的函数，仅在第一次被调用的时候通过EEPROM读取MAC地址，然后存下来，
+之后再次调用这个函数时，这个函数则简单地返回上次存下来的数据。
+
+由于EEPROM一次只能读取8个bit的数据，而MAC地址有24个bit的数据，需要读取EEPROM三次，因此增加一个内部函数e1000_read_eeprom，通过类似IDE的polling模式读取数据，当设置好要读取的数据的地址并开启读取后，等待E1000_EEPROM_RW_REG_DONE位被置上，置上之后，就可能拿到我们想读的数据。
+
