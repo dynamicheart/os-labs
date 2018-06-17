@@ -570,6 +570,7 @@ page_insert(pde_t *pgdir, struct Page *pp, void *va, int perm)
 	// Elegant way to address corner-case. Prevent it from being freed.
 	pp->pp_ref++;
 
+	// TLB is invalidated in function 'page_remove'
 	if (*pte & PTE_P) {
 		page_remove(pgdir, va);
 	}

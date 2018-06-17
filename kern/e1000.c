@@ -9,15 +9,20 @@
 // LAB 6: Your driver code here
 volatile uint32_t *bar0;
 
-// Warning: still cache-enable
-struct e1000_rx_desc rx_desc_ring[RX_DESC_NUM]__attribute__((aligned(16)));
+// rx_desc_ring should be 16 byte aligned
+struct e1000_rx_desc rx_desc_ring[RX_DESC_NUM]__attribute__((aligned(PGSIZE)));
 char rx_packet_buffers[RX_DESC_NUM][RX_PACKET_SIZE];
 
-// Warning: still cache-enable
 struct e1000_tx_desc tx_desc_ring[TX_DESC_NUM] __attribute__((aligned(16)));
 char tx_packet_buffers[TX_DESC_NUM][TX_PACKET_SIZE];
 
-static int mmio_map(void *vaddr, uint32_t paddr, uint32_t size, uint32_t perm) {
+// The pages above should be remapped as cache-disabled and write-through
+char net_data_padding __attribute__((aligned(PGSIZE)));
+
+static void *dmapage_start = rx_desc_ring;
+static void *dmapage_end = &net_data_padding;
+
+static int memory_map(void *vaddr, uint32_t paddr, uint32_t size, uint32_t perm) {
 	void *last;
 	pte_t *pte;
 
@@ -156,9 +161,9 @@ int e1000_82540em_attach(struct pci_func *pcif) {
 
 	// Create a virtual memory mapping from KSTACKTOP to E1000's BAR 0
 	// bar0's size is less than 4MB
-	if ((res = mmio_map((void *)KSTACKTOP, pcif->reg_base[0], 
+	if ((res = memory_map((void *)KSTACKTOP, pcif->reg_base[0], 
 		pcif->reg_size[0], PTE_P | PTE_W | PTE_PCD | PTE_PWT)) < 0)
-		panic("e1000_82540em_attach: mmio map failed");
+		panic("e1000_82540em_attach: mmio mapping failed");
 	bar0 = (uint32_t *)KSTACKTOP;
 
 	// To test your mapping, try printing out the device status register (section 13.4.2).
@@ -166,6 +171,11 @@ int e1000_82540em_attach(struct pci_func *pcif) {
 	// get 0x80080783, which indicates a full duplex link is up at 1000 MB/s, among other 
 	// things.
 	assert(bar0[E1000_STATUS] == 0x80080783);
+
+	// Initialize DMA-related pages
+	if ((res = memory_map(dmapage_start, PADDR(dmapage_start),
+		dmapage_end - dmapage_start, PTE_P | PTE_W | PTE_PCD | PTE_PWT)) < 0)
+		panic("e1000_82540em_attach: DMA pages mapping failed");
 
 	if ((res = e1000_setup_tx_resources()) < 0)
 		panic("e1000_82540em_attach: setup tx failed");
