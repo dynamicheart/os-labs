@@ -49,5 +49,7 @@ Cheesy web page!
 e1000_getmac是一个单例模式的函数，仅在第一次被调用的时候通过EEPROM读取MAC地址，然后存下来，
 之后再次调用这个函数时，这个函数则简单地返回上次存下来的数据。
 
-由于EEPROM一次只能读取8个bit的数据，而MAC地址有24个bit的数据，需要读取EEPROM三次，因此增加一个内部函数e1000_read_eeprom，通过类似IDE的polling模式读取数据，当设置好要读取的数据的地址并开启读取后，等待E1000_EEPROM_RW_REG_DONE位被置上，置上之后，就可能拿到我们想读的数据。
+由于EEPROM一次只能读取8个bit的数据，而MAC地址有24个bit的数据，需要读取EEPROM三次，因此增加
+一个内部函数e1000_read_eeprom，通过类似IDE的polling模式读取数据，当设置好要读取的数据的地
+址并开启读取后，等待E1000_EEPROM_RW_REG_DONE位被置上，置上之后，就可能拿到我们想读的数据。
 
